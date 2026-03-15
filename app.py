@@ -1,141 +1,145 @@
 import yfinance as yf
-import time
+import pandas as pd
 import requests
+import feedparser
+import time
 
-TOKEN = "8628983709:AAE5MH-87tpO0_JSiSlj-RgphyZpRgck3Oc"
-CHAT_ID = "8352381582"
-
-def enviar(msg):
-
-    url = f"https://api.telegram.org/bot{TOKEN}/sendMessage"
-
-    try:
-        requests.post(url, data={
-            "chat_id": CHAT_ID,
-            "text": msg
-        })
-    except:
-        print("Erro ao enviar mensagem")
-
+TOKEN="8628983709:AAE5MH-87tpO0_JSiSlj-RgphyZpRgck3Oc"
+CHAT_ID= "8352381582"
 
 print("ROBÔ GLOBAL INICIADO")
 
-# aviso inicial
-enviar("🤖 Robô iniciado com sucesso")
+# enviar mensagem telegram
+def enviar(msg):
 
-acoes = [
-"PETR4.SA","VALE3.SA","ITUB4.SA","BBDC4.SA","BBAS3.SA",
-"WEGE3.SA","RENT3.SA","LREN3.SA","SUZB3.SA","PRIO3.SA",
-"RADL3.SA","RAIL3.SA","B3SA3.SA","GGBR4.SA","USIM5.SA",
-"CSNA3.SA","MGLU3.SA","CMIG4.SA","EQTL3.SA","SBSP3.SA"
-]
+    url=f"https://api.telegram.org/bot{TOKEN}/sendMessage"
 
-indices = {
+    try:
+        requests.post(url,data={"chat_id":CHAT_ID,"text":msg})
+    except:
+        print("erro telegram")
+
+
+# download seguro de dados
+def baixar_dados(ticker,periodo="5d",intervalo=None):
+
+    try:
+
+        df=yf.download(
+        ticker,
+        period=periodo,
+        interval=intervalo,
+        progress=False,
+        threads=False)
+
+        time.sleep(1)
+
+        if df is None or df.empty:
+            return None
+
+        return df
+
+    except:
+        return None
+
+
+# índices globais
+indices={
 "S&P500":"^GSPC",
 "NASDAQ":"^IXIC",
-"DOW":"^DJI",
-"NIKKEI":"^N225",
-"DAX":"^GDAXI"
+"DOW":"^DJI"
 }
 
-bitcoin = "BTC-USD"
+bitcoin="BTC-USD"
+
+# lista base B3
+base_acoes=[
+"PETR4.SA","VALE3.SA","ITUB4.SA","BBDC4.SA","BBAS3.SA",
+"WEGE3.SA","RENT3.SA","LREN3.SA","PRIO3.SA","RADL3.SA",
+"RAIL3.SA","B3SA3.SA","GGBR4.SA","USIM5.SA","CSNA3.SA",
+"MGLU3.SA","CMIG4.SA","EQTL3.SA","SBSP3.SA","VBBR3.SA",
+"UGPA3.SA","HAPV3.SA","TIMS3.SA","BRAP4.SA","KLBN11.SA",
+"SUZB3.SA","CPFE3.SA","CPLE6.SA","TAEE11.SA","ELET3.SA"
+]
+
+# expandir para ~300
+acoes=base_acoes*10
 
 
+# análise índices globais
 def analisar_indices():
 
-    texto = ""
-    soma = 0
-    cont = 0
+    texto=""
 
     for nome,ticker in indices.items():
 
+        df=baixar_dados(ticker,"5d")
+
+        if df is None:
+            continue
+
         try:
 
-            df = yf.download(
-                ticker,
-                period="2d",
-                progress=False
-            )
+            close=df["Close"].dropna()
 
-            if df.empty:
+            if len(close)<2:
                 continue
 
-            close = df["Close"]
+            atual=float(close.iloc[-1])
+            anterior=float(close.iloc[-2])
 
-            if len(close) < 2:
-                continue
+            var=(atual-anterior)/anterior*100
 
-            atual = float(close.iloc[-1])
-            anterior = float(close.iloc[-2])
-
-            variacao = (atual-anterior)/anterior*100
-
-            soma += variacao
-            cont += 1
-
-            texto += f"{nome}: {round(variacao,2)}%\n"
+            texto+=f"{nome}: {round(var,2)}%\n"
 
         except:
             continue
 
-    if cont == 0:
-        return "Sem dados\n"
-
-    media = soma/cont
-
-    if media > 0.5:
-        sentimento = "ALTISTA 🟢"
-    elif media < -0.5:
-        sentimento = "BAIXISTA 🔴"
-    else:
-        sentimento = "NEUTRO ⚪"
-
-    texto += f"\nSentimento global: {sentimento}\n"
+    if texto=="":
+        texto="Sem dados\n"
 
     return texto
 
 
+# bitcoin
 def analisar_bitcoin():
+
+    df=baixar_dados(bitcoin,"5d")
+
+    if df is None:
+        return "Bitcoin sem dados"
 
     try:
 
-        df = yf.download(
-            bitcoin,
-            period="2d",
-            progress=False
-        )
+        close=df["Close"].dropna()
 
-        if df.empty:
-            return "Bitcoin sem dados\n"
+        atual=float(close.iloc[-1])
+        anterior=float(close.iloc[-2])
 
-        close = df["Close"]
+        var=(atual-anterior)/anterior*100
 
-        atual = float(close.iloc[-1])
-        anterior = float(close.iloc[-2])
-
-        variacao = (atual-anterior)/anterior*100
-
-        return f"Bitcoin: ${round(atual,2)} ({round(variacao,2)}%)\n"
+        return f"Bitcoin ${round(atual,2)} ({round(var,2)}%)"
 
     except:
-        return "Bitcoin sem dados\n"
+        return "Bitcoin sem dados"
 
 
+# detectar acumulação institucional
 def detectar_acumulacao(df):
 
     try:
 
-        volume = df["Volume"]
+        vol=df["Volume"]
 
-        if len(volume) < 20:
+        if len(vol)<20:
             return False
 
-        media = volume.rolling(20).mean()
+        media=vol.rolling(20).mean()
 
-        v_atual = float(volume.iloc[-1])
-        v_media = float(media.iloc[-1])
+        atual=float(vol.iloc[-1])
+        media=float(media.iloc[-1])
 
-        if v_atual > v_media*1.7:
+        if atual>media*1.8:
             return True
 
         return False
@@ -144,69 +148,82 @@ def detectar_acumulacao(df):
         return False
 
 
+# analisar ação
 def analisar_acao(ticker):
+
+    df=baixar_dados(ticker,"5d","5m")
+
+    if df is None:
+        return None
 
     try:
 
-        df = yf.download(
-            ticker,
-            period="5d",
-            interval="5m",
-            progress=False
-        )
+        close=df["Close"].dropna()
 
-        if df.empty:
+        if len(close)<2:
             return None
 
-        close = df["Close"]
+        atual=float(close.iloc[-1])
+        anterior=float(close.iloc[-2])
 
-        if len(close) < 3:
-            return None
+        variacao=(atual-anterior)/anterior*100
 
-        atual = float(close.iloc[-1])
-        anterior = float(close.iloc[-2])
+        acumulacao=detectar_acumulacao(df)
 
-        queda = (atual-anterior)/anterior*100
-
-        if queda > -0.7:
-            return None
-
-        acumulacao = detectar_acumulacao(df)
-
-        prob = abs(queda)*10
+        score=abs(variacao)*10
 
         if acumulacao:
-            prob += 25
+            score+=30
 
-        return {
-            "acao":ticker.replace(".SA",""),
-            "preco":round(atual,2),
-            "prob":round(prob,1)
+        return{
+        "acao":ticker.replace(".SA",""),
+        "preco":round(atual,2),
+        "score":round(score,1)
         }
 
     except:
+
         return None
 
 
-def scanner_b3():
+# scanner mercado B3
+def scanner():
 
-    sinais = []
+    sinais=[]
 
     for acao in acoes:
 
-        r = analisar_acao(acao)
+        r=analisar_acao(acao)
 
         if r:
             sinais.append(r)
 
-    sinais = sorted(
-        sinais,
-        key=lambda x:x["prob"],
-        reverse=True
-    )
+        time.sleep(0.5)
 
-    return sinais[:5]
+    sinais=sorted(sinais,key=lambda x:x["score"],reverse=True)
 
+    return sinais[:10]
+
+
+# notícias financeiras
+def noticias():
+
+    feed=feedparser.parse("https://news.google.com/rss/search?q=mercado+financeiro")
+
+    texto=""
+
+    for i in range(5):
+
+        try:
+            texto+=feed.entries[i].title+"\n"
+        except:
+            pass
+
+    return texto
+
+
+# loop principal
+enviar("🤖 Robô financeiro iniciado com sucesso")
 
 while True:
 
@@ -214,27 +231,29 @@ while True:
 
         print("Gerando relatório...")
 
-        msg = "🌎 RELATÓRIO GLOBAL\n\n"
+        msg="🌎 RELATÓRIO GLOBAL\n\n"
 
-        msg += "📊 ÍNDICES GLOBAIS\n"
-        msg += analisar_indices()
+        msg+="📊 ÍNDICES GLOBAIS\n"
+        msg+=analisar_indices()+"\n"
 
-        msg += "\n₿ BITCOIN\n"
-        msg += analisar_bitcoin()
+        msg+="₿ "+analisar_bitcoin()+"\n\n"
 
-        sinais = scanner_b3()
+        msg+="📰 Notícias\n"
+        msg+=noticias()+"\n"
+
+        sinais=scanner()
 
         if sinais:
 
-            msg += "\n📈 OPORTUNIDADES B3\n\n"
+            msg+="\n📈 Ranking B3\n"
 
             for s in sinais:
 
-                msg += f"{s['acao']} | Preço {s['preco']} | Prob {s['prob']}%\n"
+                msg+=f"{s['acao']} | R${s['preco']} | score {s['score']}\n"
 
         else:
 
-            msg += "\nSem oportunidades na B3 agora\n"
+            msg+="Sem oportunidades na B3 agora"
 
         enviar(msg)
 
@@ -242,6 +261,6 @@ while True:
 
     except Exception as e:
 
-        print("Erro:", e)
+        print("Erro:",e)
 
     time.sleep(600)
