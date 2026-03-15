@@ -1,9 +1,6 @@
 import yfinance as yf
 import time
-import logging
 from telegram import Bot
-
-logging.getLogger("yfinance").setLevel(logging.CRITICAL)
 
 TOKEN = "8759794487:AAH9Roaz5gxMw7F5lXLJ7aL2DeXWmi5gQU8"
 CHAT_ID = "8759794487"
@@ -11,6 +8,12 @@ CHAT_ID = "8759794487"
 bot = Bot(token=TOKEN)
 
 print("ROBÔ GLOBAL INICIADO")
+
+# mensagem de teste inicial
+try:
+    bot.send_message(chat_id=CHAT_ID, text="🤖 Robô iniciado com sucesso")
+except:
+    print("Falha ao enviar mensagem inicial")
 
 acoes = [
 "PETR4.SA","VALE3.SA","ITUB4.SA","BBDC4.SA","BBAS3.SA",
@@ -59,13 +62,18 @@ def analisar_indices():
                 threads=False
             )
 
-            if df.empty:
+            if df is None or df.empty:
                 continue
 
-            atual = float(df["Close"].iloc[-1])
-            anterior = float(df["Close"].iloc[-2])
+            close = df["Close"].dropna()
 
-            variacao = (atual-anterior)/anterior*100
+            if len(close) < 2:
+                continue
+
+            atual = float(close.iloc[-1])
+            anterior = float(close.iloc[-2])
+
+            variacao = ((atual - anterior) / anterior) * 100
 
             soma += variacao
             cont += 1
@@ -96,13 +104,18 @@ def analisar_bitcoin():
             threads=False
         )
 
-        if df.empty:
+        if df is None or df.empty:
             return "Bitcoin sem dados\n"
 
-        atual = float(df["Close"].iloc[-1])
-        anterior = float(df["Close"].iloc[-2])
+        close = df["Close"].dropna()
 
-        variacao = (atual-anterior)/anterior*100
+        if len(close) < 2:
+            return "Bitcoin sem dados\n"
+
+        atual = float(close.iloc[-1])
+        anterior = float(close.iloc[-2])
+
+        variacao = ((atual-anterior)/anterior)*100
 
         return f"Bitcoin: ${round(atual,2)} ({round(variacao,2)}%)\n"
 
@@ -115,17 +128,20 @@ def detectar_acumulacao(df):
 
     try:
 
-        volume = df["Volume"]
+        volume = df["Volume"].dropna()
 
         if len(volume) < 20:
             return False
 
-        media = volume.rolling(20).mean()
+        media = volume.rolling(20).mean().dropna()
+
+        if len(media) == 0:
+            return False
 
         v_atual = float(volume.iloc[-1])
         v_media = float(media.iloc[-1])
 
-        if v_atual > v_media*1.7:
+        if v_atual > v_media * 1.7:
             return True
 
         return False
@@ -146,10 +162,10 @@ def analisar_acao(ticker):
             threads=False
         )
 
-        if df.empty:
+        if df is None or df.empty:
             return None
 
-        close = df["Close"]
+        close = df["Close"].dropna()
 
         if len(close) < 3:
             return None
@@ -157,7 +173,7 @@ def analisar_acao(ticker):
         atual = float(close.iloc[-1])
         anterior = float(close.iloc[-2])
 
-        queda = (atual-anterior)/anterior*100
+        queda = ((atual-anterior)/anterior)*100
 
         if queda > -0.7:
             return None
@@ -176,7 +192,6 @@ def analisar_acao(ticker):
         }
 
     except:
-
         return None
 
 
@@ -191,11 +206,7 @@ def scanner_b3():
         if r:
             sinais.append(r)
 
-    sinais = sorted(
-        sinais,
-        key=lambda x:x["prob"],
-        reverse=True
-    )
+    sinais = sorted(sinais,key=lambda x:x["prob"],reverse=True)
 
     return sinais[:5]
 
@@ -234,6 +245,6 @@ while True:
 
     except Exception as e:
 
-        print("Erro:",e)
+        print("Erro:", e)
 
     time.sleep(600)
