@@ -14,10 +14,10 @@ def enviar(msg):
     try:
         requests.post(url,data={"chat_id":CHAT_ID,"text":msg})
     except:
-        print("erro telegram")
+        print("Erro ao enviar Telegram")
 
 
-# pegar preço no yahoo
+# pegar preço de ativo
 def preco_ativo(ticker):
 
     try:
@@ -26,11 +26,11 @@ def preco_ativo(ticker):
 
         r=requests.get(url,timeout=10).json()
 
-        dados=r["chart"]["result"][0]["meta"]
+        meta=r["chart"]["result"][0]["meta"]
 
-        preco=dados["regularMarketPrice"]
+        preco=meta["regularMarketPrice"]
 
-        anterior=dados["previousClose"]
+        anterior=meta["previousClose"]
 
         variacao=(preco-anterior)/anterior*100
 
@@ -79,17 +79,15 @@ def analisar_bitcoin():
     return "Bitcoin sem dados"
 
 
-# ações mais líquidas da B3
+# ações líquidas B3
 acoes=[
 "PETR4.SA","VALE3.SA","ITUB4.SA","BBDC4.SA","BBAS3.SA",
 "B3SA3.SA","WEGE3.SA","RENT3.SA","PRIO3.SA","LREN3.SA",
 "RADL3.SA","RAIL3.SA","SUZB3.SA","GGBR4.SA","USIM5.SA",
-"CSNA3.SA","ELET3.SA","MGLU3.SA","HAPV3.SA","EQTL3.SA",
-"SBSP3.SA","VBBR3.SA","UGPA3.SA","TIMS3.SA","BRAP4.SA"
+"CSNA3.SA","ELET3.SA","MGLU3.SA","HAPV3.SA","EQTL3.SA"
 ]
 
 
-# scanner ações
 def scanner():
 
     sinais=[]
@@ -103,9 +101,9 @@ def scanner():
             score=abs(var)*10
 
             sinais.append({
-            "acao":acao.replace(".SA",""),
-            "preco":round(preco,2),
-            "score":round(score,1)
+                "acao":acao.replace(".SA",""),
+                "preco":round(preco,2),
+                "score":round(score,1)
             })
 
         time.sleep(1)
@@ -115,10 +113,12 @@ def scanner():
     return sinais[:10]
 
 
-# notícias
+# notícias em português
 def noticias():
 
-    feed=feedparser.parse("https://news.google.com/rss/search?q=mercado+financeiro")
+    feed=feedparser.parse(
+    "https://news.google.com/rss/search?q=mercado+financeiro+brasil&hl=pt-BR&gl=BR&ceid=BR:pt-419"
+    )
 
     texto=""
 
@@ -132,7 +132,7 @@ def noticias():
     return texto
 
 
-enviar("🤖 Robô financeiro iniciado")
+enviar("🤖 Robô financeiro iniciado com sucesso")
 
 
 while True:
