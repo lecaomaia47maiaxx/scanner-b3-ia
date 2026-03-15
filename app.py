@@ -1,4 +1,8 @@
 import yfinance as yf
+
+df = yf.download("BTC-USD", period="5d")
+print(df.tail())
+import yfinance as yf
 import pandas as pd
 import requests
 import feedparser
