@@ -12,19 +12,18 @@ bot = Bot(token=TOKEN)
 
 print("ROBÔ GLOBAL INICIADO")
 
-# AÇÕES ESTÁVEIS DA B3
 acoes = [
-"PETR4.SA","VALE3.SA","ITUB4.SA","BBDC4.SA","BBAS3.SA","WEGE3.SA",
-"RENT3.SA","LREN3.SA","SUZB3.SA","PRIO3.SA","RADL3.SA","RAIL3.SA",
-"B3SA3.SA","GGBR4.SA","USIM5.SA","CSNA3.SA","MGLU3.SA","CMIG4.SA",
-"EQTL3.SA","SBSP3.SA","VBBR3.SA","UGPA3.SA","HAPV3.SA","TIMS3.SA"
+"PETR4.SA","VALE3.SA","ITUB4.SA","BBDC4.SA","BBAS3.SA",
+"WEGE3.SA","RENT3.SA","LREN3.SA","SUZB3.SA","PRIO3.SA",
+"RADL3.SA","RAIL3.SA","B3SA3.SA","GGBR4.SA","USIM5.SA",
+"CSNA3.SA","MGLU3.SA","CMIG4.SA","EQTL3.SA","SBSP3.SA",
+"VBBR3.SA","UGPA3.SA","HAPV3.SA","TIMS3.SA"
 ]
 
-# INDICES GLOBAIS
 indices = {
 "S&P500":"^GSPC",
 "NASDAQ":"^IXIC",
-"DOWJONES":"^DJI",
+"DOW":"^DJI",
 "NIKKEI":"^N225",
 "DAX":"^GDAXI"
 }
@@ -32,12 +31,12 @@ indices = {
 bitcoin = "BTC-USD"
 
 
-def sentimento(valor):
+def sentimento(v):
 
-    if valor > 0.5:
+    if v > 0.5:
         return "ALTISTA 🟢"
 
-    if valor < -0.5:
+    if v < -0.5:
         return "BAIXISTA 🔴"
 
     return "NEUTRO ⚪"
@@ -63,8 +62,8 @@ def analisar_indices():
             if df.empty:
                 continue
 
-            atual = df["Close"].iloc[-1]
-            anterior = df["Close"].iloc[-2]
+            atual = float(df["Close"].iloc[-1])
+            anterior = float(df["Close"].iloc[-2])
 
             variacao = (atual-anterior)/anterior*100
 
@@ -74,7 +73,7 @@ def analisar_indices():
             texto += f"{nome}: {round(variacao,2)}%\n"
 
         except:
-            pass
+            continue
 
     if cont == 0:
         return "Sem dados\n"
@@ -100,12 +99,12 @@ def analisar_bitcoin():
         if df.empty:
             return "Bitcoin sem dados\n"
 
-        atual = df["Close"].iloc[-1]
-        anterior = df["Close"].iloc[-2]
+        atual = float(df["Close"].iloc[-1])
+        anterior = float(df["Close"].iloc[-2])
 
-        var = (atual-anterior)/anterior*100
+        variacao = (atual-anterior)/anterior*100
 
-        return f"Bitcoin: ${round(atual,2)} ({round(var,2)}%)\n"
+        return f"Bitcoin: ${round(atual,2)} ({round(variacao,2)}%)\n"
 
     except:
 
@@ -117,9 +116,16 @@ def detectar_acumulacao(df):
     try:
 
         volume = df["Volume"]
+
+        if len(volume) < 20:
+            return False
+
         media = volume.rolling(20).mean()
 
-        if volume.iloc[-1] > media.iloc[-1]*1.7:
+        v_atual = float(volume.iloc[-1])
+        v_media = float(media.iloc[-1])
+
+        if v_atual > v_media*1.7:
             return True
 
         return False
@@ -143,10 +149,13 @@ def analisar_acao(ticker):
         if df.empty:
             return None
 
-        preco = df["Close"]
+        close = df["Close"]
 
-        atual = preco.iloc[-1]
-        anterior = preco.iloc[-2]
+        if len(close) < 3:
+            return None
+
+        atual = float(close.iloc[-1])
+        anterior = float(close.iloc[-2])
 
         queda = (atual-anterior)/anterior*100
 
@@ -167,6 +176,7 @@ def analisar_acao(ticker):
         }
 
     except:
+
         return None
 
 
@@ -181,7 +191,11 @@ def scanner_b3():
         if r:
             sinais.append(r)
 
-    sinais = sorted(sinais,key=lambda x:x["prob"],reverse=True)
+    sinais = sorted(
+        sinais,
+        key=lambda x:x["prob"],
+        reverse=True
+    )
 
     return sinais[:5]
 
