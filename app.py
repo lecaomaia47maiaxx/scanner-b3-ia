@@ -4,9 +4,7 @@ import feedparser
 
 TOKEN="8628983709:AAE5MH-87tpO0_JSiSlj-RgphyZpRgck3Oc"
 CHAT_ID="8352381582"
-API_KEY="OYSICYD1972XILCB"
-
-print("ROBÔ GLOBAL INICIADO")
+API_KEY="59c25209cf3141f088781b53e576eb55"
 
 
 def enviar(msg):
@@ -19,31 +17,40 @@ def enviar(msg):
         print("Erro Telegram")
 
 
-# pegar preço de ativo
-def preco_acao(ticker):
+def preco(ticker):
 
     try:
 
-        url=f"https://www.alphavantage.co/query?function=GLOBAL_QUOTE&symbol={ticker}&apikey={API_KEY}"
+        url=f"https://api.twelvedata.com/price?symbol={ticker}&apikey={API_KEY}"
 
-        r=requests.get(url).json()
+        r=requests.get(url,timeout=10).json()
 
-        dados=r["Global Quote"]
+        if "price" in r:
 
-        preco=float(dados["05. price"])
-        var=float(dados["10. change percent"].replace("%",""))
+            preco=float(r["price"])
 
-        return preco,var
+            return preco
+
+        else:
+
+            return None
 
     except:
 
-        return None,None
+        return None
 
 
-# ações líquidas B3
 acoes=[
-"PETR4.SA","VALE3.SA","ITUB4.SA","BBDC4.SA","BBAS3.SA",
-"B3SA3.SA","WEGE3.SA","RENT3.SA","PRIO3.SA","LREN3.SA"
+"PETR4:BVMF",
+"VALE3:BVMF",
+"ITUB4:BVMF",
+"BBDC4:BVMF",
+"BBAS3:BVMF",
+"B3SA3:BVMF",
+"WEGE3:BVMF",
+"RENT3:BVMF",
+"PRIO3:BVMF",
+"LREN3:BVMF"
 ]
 
 
@@ -53,26 +60,20 @@ def scanner():
 
     for acao in acoes:
 
-        preco,var=preco_acao(acao)
+        p=preco(acao)
 
-        if preco:
-
-            score=abs(var)*10
+        if p:
 
             sinais.append({
-                "acao":acao.replace(".SA",""),
-                "preco":round(preco,2),
-                "score":round(score,1)
+                "acao":acao.replace(":BVMF",""),
+                "preco":round(p,2)
             })
 
-        time.sleep(15)  # limite da API
+        time.sleep(8)
 
-    sinais=sorted(sinais,key=lambda x:x["score"],reverse=True)
-
-    return sinais[:5]
+    return sinais
 
 
-# notícias
 def noticias():
 
     feed=feedparser.parse(
@@ -91,29 +92,27 @@ def noticias():
     return texto
 
 
-enviar("🤖 Robô financeiro iniciado")
+enviar("🤖 Robô iniciado no Railway")
 
 
 while True:
 
     try:
 
-        print("Gerando relatório...")
-
         msg="🌎 RELATÓRIO FINANCEIRO\n\n"
 
         msg+="📰 Notícias\n"
         msg+=noticias()+"\n"
 
-        sinais=scanner()
+        dados=scanner()
 
-        if sinais:
+        if dados:
 
-            msg+="\n📈 Ranking B3\n"
+            msg+="\n📈 Ações B3\n"
 
-            for s in sinais:
+            for d in dados:
 
-                msg+=f"{s['acao']} | R${s['preco']} | score {s['score']}\n"
+                msg+=f"{d['acao']} | R${d['preco']}\n"
 
         else:
 
@@ -125,6 +124,6 @@ while True:
 
     except Exception as e:
 
-        print("Erro:",e)
+        print(e)
 
     time.sleep(900)
