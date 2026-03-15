@@ -1,142 +1,189 @@
-import os
-import yfinance as yf
-import pandas as pd
-import numpy as np
-from telegram import Bot
-from telegram.ext import Updater
-from datetime import datetime
+import requests
+import time
+import feedparser
 
-TOKEN = "8628983709:AAE5MH-87tpO0_JSiSlj-RgphyZpRgck3Oc"
-CHAT_ID = "8352381582"
+TOKEN="8628983709:AAE5MH-87tpO0_JSiSlj-RgphyZpRgck3Oc"
+CHAT_ID="8352381582"
 
-bot = Bot(token=TOKEN)
-
-# ==============================
-# FUNÇÃO RSI
-# ==============================
-def calcular_rsi(series, periodo=14):
-    delta = series.diff()
-    ganho = delta.clip(lower=0)
-    perda = -delta.clip(upper=0)
-
-    media_ganho = ganho.rolling(window=periodo).mean()
-    media_perda = perda.rolling(window=periodo).mean()
-
-    rs = media_ganho / media_perda
-    rsi = 100 - (100 / (1 + rs))
-
-    return rsi
+print("ROBÔ GLOBAL INICIADO")
 
 
-# ==============================
-# FUNÇÃO DE ANÁLISE
-# ==============================
-def analisar_ativo(ticker):
+def enviar(msg):
+
+    url=f"https://api.telegram.org/bot{TOKEN}/sendMessage"
+
     try:
-        df = yf.download(ticker, period="3mo", interval="1d")
+        requests.post(url,data={"chat_id":CHAT_ID,"text":msg})
+    except:
+        print("Erro Telegram")
 
-        if df.empty:
-            return f"{ticker} → Sem dados disponíveis"
 
-        close = df["Close"].squeeze()
+# pegar vários ativos ao mesmo tempo
+def pegar_ativos(lista):
 
-        df["RSI"] = calcular_rsi(close)
-        df["MM9"] = close.rolling(9).mean()
-        df["MM21"] = close.rolling(21).mean()
+    try:
 
-        preco = close.iloc[-1]
-        rsi = df["RSI"].iloc[-1]
-        mm9 = df["MM9"].iloc[-1]
-        mm21 = df["MM21"].iloc[-1]
+        ativos=",".join(lista)
 
-        # Classificação RSI
-        if rsi < 30:
-            status_rsi = "Sobrevendido"
-        elif rsi > 70:
-            status_rsi = "Sobrecomprado"
+        url=f"https://brapi.dev/api/quote/{ativos}"
+
+        r=requests.get(url,timeout=10).json()
+
+        dados={}
+
+        for item in r["results"]:
+
+            dados[item["symbol"]] = {
+                "preco": item.get("regularMarketPrice"),
+                "var": item.get("regularMarketChangePercent")
+            }
+
+        return dados
+
+    except:
+
+        return {}
+
+
+# índices globais
+indices={
+"S&P500":"^GSPC",
+"NASDAQ":"^IXIC",
+"DOW":"^DJI"
+}
+
+
+# ações líquidas B3
+acoes=[
+"PETR4","VALE3","ITUB4","BBDC4","BBAS3",
+"B3SA3","WEGE3","RENT3","PRIO3","LREN3",
+"RADL3","RAIL3","SUZB3","GGBR4","USIM5",
+"CSNA3","ELET3","MGLU3","HAPV3","EQTL3"
+]
+
+
+def analisar_indices(dados):
+
+    texto=""
+
+    for nome,ticker in indices.items():
+
+        if ticker in dados:
+
+            var=dados[ticker]["var"]
+
+            if var!=None:
+
+                texto+=f"{nome}: {round(var,2)}%\n"
+
+    if texto=="":
+        texto="Sem dados\n"
+
+    return texto
+
+
+def analisar_bitcoin(dados):
+
+    if "BTC-USD" in dados:
+
+        preco=dados["BTC-USD"]["preco"]
+        var=dados["BTC-USD"]["var"]
+
+        if preco:
+
+            return f"Bitcoin ${round(preco,2)} ({round(var,2)}%)"
+
+    return "Bitcoin sem dados"
+
+
+def scanner(dados):
+
+    sinais=[]
+
+    for acao in acoes:
+
+        if acao in dados:
+
+            preco=dados[acao]["preco"]
+            var=dados[acao]["var"]
+
+            if preco and var!=None:
+
+                score=abs(var)*10
+
+                sinais.append({
+                    "acao":acao,
+                    "preco":round(preco,2),
+                    "score":round(score,1)
+                })
+
+    sinais=sorted(sinais,key=lambda x:x["score"],reverse=True)
+
+    return sinais[:10]
+
+
+# notícias
+def noticias():
+
+    feed=feedparser.parse(
+    "https://news.google.com/rss/search?q=mercado+financeiro+brasil&hl=pt-BR&gl=BR&ceid=BR:pt-419"
+    )
+
+    texto=""
+
+    for i in range(5):
+
+        try:
+            texto+=feed.entries[i].title+"\n"
+        except:
+            pass
+
+    return texto
+
+
+enviar("🤖 Robô financeiro iniciado com sucesso")
+
+
+while True:
+
+    try:
+
+        print("Gerando relatório...")
+
+        ativos=list(indices.values()) + acoes + ["BTC-USD"]
+
+        dados=pegar_ativos(ativos)
+
+        msg="🌎 RELATÓRIO GLOBAL\n\n"
+
+        msg+="📊 ÍNDICES GLOBAIS\n"
+        msg+=analisar_indices(dados)+"\n"
+
+        msg+="₿ "+analisar_bitcoin(dados)+"\n\n"
+
+        msg+="📰 Notícias\n"
+        msg+=noticias()+"\n"
+
+        sinais=scanner(dados)
+
+        if sinais:
+
+            msg+="\n📈 Ranking B3\n"
+
+            for s in sinais:
+
+                msg+=f"{s['acao']} | R${s['preco']} | score {s['score']}\n"
+
         else:
-            status_rsi = "Neutro"
 
-        # Geração de sinal
-        if rsi < 30 and mm9 > mm21:
-            sinal = "🟢 FORTE COMPRA"
-        elif rsi > 70 and mm9 < mm21:
-            sinal = "🔴 FORTE VENDA"
-        elif mm9 > mm21:
-            sinal = "🟡 TENDÊNCIA DE ALTA"
-        elif mm9 < mm21:
-            sinal = "🟡 TENDÊNCIA DE BAIXA"
-        else:
-            sinal = "⚪ NEUTRO"
+            msg+="Sem oportunidades na B3 agora"
 
-        mensagem = (
-            f"📈 {ticker.replace('.SA','')}\n"
-            f"Preço: R$ {preco:.2f}\n"
-            f"RSI: {rsi:.2f} ({status_rsi})\n"
-            f"MM9: {mm9:.2f}\n"
-            f"MM21: {mm21:.2f}\n"
-            f"👉 SINAL: {sinal}\n"
-        )
+        enviar(msg)
 
-        return mensagem
+        print("Relatório enviado")
 
     except Exception as e:
-        return f"{ticker} → Erro: {str(e)}"
 
+        print("Erro:",e)
 
-# ==============================
-# MERCADO GLOBAL
-# ==============================
-def analisar_mercado_global():
-    indices = {
-        "🇺🇸 S&P 500": "^GSPC",
-        "🇺🇸 NASDAQ": "^IXIC",
-        "🇺🇸 DOW JONES": "^DJI",
-        "🇪🇺 EURO STOXX": "^STOXX50E",
-        "🇨🇳 SHANGHAI": "000001.SS"
-    }
-
-    resultado = "\n🌎 MERCADO GLOBAL\n\n"
-
-    for nome, ticker in indices.items():
-        try:
-            df = yf.download(ticker, period="5d", interval="1d")
-            close = df["Close"].squeeze()
-
-            variacao = ((close.iloc[-1] - close.iloc[-2]) / close.iloc[-2]) * 100
-
-            if variacao > 0:
-                tendencia = "🟢 Alta"
-            else:
-                tendencia = "🔴 Baixa"
-
-            resultado += f"{nome}: {variacao:.2f}% ({tendencia})\n"
-
-        except:
-            resultado += f"{nome}: erro\n"
-
-    return resultado
-
-
-# ==============================
-# RELATÓRIO COMPLETO
-# ==============================
-def enviar_relatorio():
-    ativos = ["PETR4.SA", "VALE3.SA", "ITUB4.SA", "BBDC4.SA", "BBAS3.SA"]
-
-    mensagem = f"📊 RELATÓRIO B3\n{datetime.now().strftime('%d/%m/%Y %H:%M')}\n\n"
-
-    for ativo in ativos:
-        mensagem += analisar_ativo(ativo) + "\n"
-
-    mensagem += analisar_mercado_global()
-
-    bot.send_message(chat_id=CHAT_ID, text=mensagem)
-
-
-# ==============================
-# EXECUÇÃO
-# ==============================
-if __name__ == "__main__":
-    print("Bot rodando...")
-    enviar_relatorio()
+    time.sleep(600)
