@@ -18,26 +18,31 @@ def enviar(msg):
         print("Erro Telegram")
 
 
-# pegar preço via BRAPI
-def preco_ativo(ticker):
+# pegar vários ativos ao mesmo tempo
+def pegar_ativos(lista):
 
     try:
 
-        url=f"https://brapi.dev/api/quote/{ticker}"
+        ativos=",".join(lista)
 
-        r=requests.get(url).json()
+        url=f"https://brapi.dev/api/quote/{ativos}"
 
-        dados=r["results"][0]
+        r=requests.get(url,timeout=10).json()
 
-        preco=dados["regularMarketPrice"]
+        dados={}
 
-        var=dados["regularMarketChangePercent"]
+        for item in r["results"]:
 
-        return preco,var
+            dados[item["symbol"]] = {
+                "preco": item.get("regularMarketPrice"),
+                "var": item.get("regularMarketChangePercent")
+            }
+
+        return dados
 
     except:
 
-        return None,None
+        return {}
 
 
 # índices globais
@@ -46,36 +51,6 @@ indices={
 "NASDAQ":"^IXIC",
 "DOW":"^DJI"
 }
-
-
-def analisar_indices():
-
-    texto=""
-
-    for nome,ticker in indices.items():
-
-        preco,var=preco_ativo(ticker)
-
-        if preco:
-
-            texto+=f"{nome}: {round(var,2)}%\n"
-
-    if texto=="":
-        texto="Sem dados\n"
-
-    return texto
-
-
-# bitcoin
-def analisar_bitcoin():
-
-    preco,var=preco_ativo("BTC-USD")
-
-    if preco:
-
-        return f"Bitcoin ${round(preco,2)} ({round(var,2)}%)"
-
-    return "Bitcoin sem dados"
 
 
 # ações líquidas B3
@@ -87,25 +62,60 @@ acoes=[
 ]
 
 
-def scanner():
+def analisar_indices(dados):
+
+    texto=""
+
+    for nome,ticker in indices.items():
+
+        if ticker in dados:
+
+            var=dados[ticker]["var"]
+
+            if var!=None:
+
+                texto+=f"{nome}: {round(var,2)}%\n"
+
+    if texto=="":
+        texto="Sem dados\n"
+
+    return texto
+
+
+def analisar_bitcoin(dados):
+
+    if "BTC-USD" in dados:
+
+        preco=dados["BTC-USD"]["preco"]
+        var=dados["BTC-USD"]["var"]
+
+        if preco:
+
+            return f"Bitcoin ${round(preco,2)} ({round(var,2)}%)"
+
+    return "Bitcoin sem dados"
+
+
+def scanner(dados):
 
     sinais=[]
 
     for acao in acoes:
 
-        preco,var=preco_ativo(acao)
+        if acao in dados:
 
-        if preco:
+            preco=dados[acao]["preco"]
+            var=dados[acao]["var"]
 
-            score=abs(var)*10
+            if preco and var!=None:
 
-            sinais.append({
-                "acao":acao,
-                "preco":round(preco,2),
-                "score":round(score,1)
-            })
+                score=abs(var)*10
 
-        time.sleep(1)
+                sinais.append({
+                    "acao":acao,
+                    "preco":round(preco,2),
+                    "score":round(score,1)
+                })
 
     sinais=sorted(sinais,key=lambda x:x["score"],reverse=True)
 
@@ -131,7 +141,7 @@ def noticias():
     return texto
 
 
-enviar("🤖 Robô financeiro iniciado")
+enviar("🤖 Robô financeiro iniciado com sucesso")
 
 
 while True:
@@ -140,17 +150,21 @@ while True:
 
         print("Gerando relatório...")
 
+        ativos=list(indices.values()) + acoes + ["BTC-USD"]
+
+        dados=pegar_ativos(ativos)
+
         msg="🌎 RELATÓRIO GLOBAL\n\n"
 
         msg+="📊 ÍNDICES GLOBAIS\n"
-        msg+=analisar_indices()+"\n"
+        msg+=analisar_indices(dados)+"\n"
 
-        msg+="₿ "+analisar_bitcoin()+"\n\n"
+        msg+="₿ "+analisar_bitcoin(dados)+"\n\n"
 
         msg+="📰 Notícias\n"
         msg+=noticias()+"\n"
 
-        sinais=scanner()
+        sinais=scanner(dados)
 
         if sinais:
 
