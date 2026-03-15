@@ -4,8 +4,8 @@ import numpy as np
 import time
 from telegram import Bot
 
-TOKEN = "8675758808:AAEhsr9A0HwFazy92GFUndyh2oSJFEhlMEE"
-CHAT_ID = "8675758808"
+TOKEN = "8759794487:AAH9Roaz5gxMw7F5lXLJ7aL2DeXWmi5gQU8"
+CHAT_ID = "8759794487"
 
 bot = Bot(token=TOKEN)
 
