@@ -1,15 +1,12 @@
-import yfinance as yf
-import pandas as pd
 import requests
-import feedparser
 import time
+import feedparser
 
 TOKEN="8628983709:AAE5MH-87tpO0_JSiSlj-RgphyZpRgck3Oc"
 CHAT_ID="8352381582"
 
 print("ROBÔ GLOBAL INICIADO")
 
-# enviar mensagem telegram
 def enviar(msg):
 
     url=f"https://api.telegram.org/bot{TOKEN}/sendMessage"
@@ -20,27 +17,28 @@ def enviar(msg):
         print("erro telegram")
 
 
-# download seguro
-def baixar(ticker,periodo="5d",intervalo=None):
+# pegar preço no yahoo
+def preco_ativo(ticker):
 
     try:
 
-        df=yf.download(
-        ticker,
-        period=periodo,
-        interval=intervalo,
-        progress=False,
-        threads=False)
+        url=f"https://query1.finance.yahoo.com/v8/finance/chart/{ticker}"
 
-        time.sleep(1)
+        r=requests.get(url,timeout=10).json()
 
-        if df is None or df.empty:
-            return None
+        dados=r["chart"]["result"][0]["meta"]
 
-        return df
+        preco=dados["regularMarketPrice"]
+
+        anterior=dados["previousClose"]
+
+        variacao=(preco-anterior)/anterior*100
+
+        return preco,variacao
 
     except:
-        return None
+
+        return None,None
 
 
 # índices globais
@@ -50,47 +48,18 @@ indices={
 "DOW":"^DJI"
 }
 
-bitcoin="BTC-USD"
 
-
-# ações mais líquidas da B3
-acoes=[
-"PETR4.SA","VALE3.SA","ITUB4.SA","BBDC4.SA","BBAS3.SA",
-"B3SA3.SA","WEGE3.SA","RENT3.SA","PRIO3.SA","LREN3.SA",
-"RADL3.SA","RAIL3.SA","SUZB3.SA","GGBR4.SA","USIM5.SA",
-"CSNA3.SA","ELET3.SA","ELET6.SA","MGLU3.SA","HAPV3.SA",
-"EQTL3.SA","SBSP3.SA","VBBR3.SA","UGPA3.SA","TIMS3.SA",
-"BRAP4.SA","KLBN11.SA","CPFE3.SA","CPLE6.SA","TAEE11.SA",
-"ENEV3.SA","FLRY3.SA","MULT3.SA","BRFS3.SA","JBSS3.SA",
-"EMBR3.SA","CCRO3.SA","CYRE3.SA","EZTC3.SA","MRVE3.SA"
-]
-
-
-# análise índices globais
 def analisar_indices():
 
     texto=""
 
     for nome,ticker in indices.items():
 
-        df=baixar(ticker,"5d")
+        preco,var=preco_ativo(ticker)
 
-        if df is None:
-            continue
-
-        try:
-
-            close=df["Close"].dropna()
-
-            atual=float(close.iloc[-1])
-            anterior=float(close.iloc[-2])
-
-            var=(atual-anterior)/anterior*100
+        if preco:
 
             texto+=f"{nome}: {round(var,2)}%\n"
-
-        except:
-            continue
 
     if texto=="":
         texto="Sem dados\n"
@@ -101,92 +70,45 @@ def analisar_indices():
 # bitcoin
 def analisar_bitcoin():
 
-    df=baixar(bitcoin,"5d")
+    preco,var=preco_ativo("BTC-USD")
 
-    if df is None:
-        return "Bitcoin sem dados"
+    if preco:
 
-    try:
+        return f"Bitcoin ${round(preco,2)} ({round(var,2)}%)"
 
-        close=df["Close"].dropna()
-
-        atual=float(close.iloc[-1])
-        anterior=float(close.iloc[-2])
-
-        var=(atual-anterior)/anterior*100
-
-        return f"Bitcoin ${round(atual,2)} ({round(var,2)}%)"
-
-    except:
-        return "Bitcoin sem dados"
+    return "Bitcoin sem dados"
 
 
-# detectar acumulação
-def acumulacao(df):
-
-    try:
-
-        vol=df["Volume"]
-
-        media=vol.rolling(20).mean()
-
-        atual=float(vol.iloc[-1])
-        media=float(media.iloc[-1])
-
-        if atual > media*1.8:
-            return True
-
-        return False
-
-    except:
-        return False
+# ações mais líquidas da B3
+acoes=[
+"PETR4.SA","VALE3.SA","ITUB4.SA","BBDC4.SA","BBAS3.SA",
+"B3SA3.SA","WEGE3.SA","RENT3.SA","PRIO3.SA","LREN3.SA",
+"RADL3.SA","RAIL3.SA","SUZB3.SA","GGBR4.SA","USIM5.SA",
+"CSNA3.SA","ELET3.SA","MGLU3.SA","HAPV3.SA","EQTL3.SA",
+"SBSP3.SA","VBBR3.SA","UGPA3.SA","TIMS3.SA","BRAP4.SA"
+]
 
 
-# analisar ação
-def analisar_acao(ticker):
-
-    df=baixar(ticker,"5d","5m")
-
-    if df is None:
-        return None
-
-    try:
-
-        close=df["Close"].dropna()
-
-        atual=float(close.iloc[-1])
-        anterior=float(close.iloc[-2])
-
-        variacao=(atual-anterior)/anterior*100
-
-        score=abs(variacao)*10
-
-        if acumulacao(df):
-            score+=30
-
-        return{
-        "acao":ticker.replace(".SA",""),
-        "preco":round(atual,2),
-        "score":round(score,1)
-        }
-
-    except:
-        return None
-
-
-# scanner
+# scanner ações
 def scanner():
 
     sinais=[]
 
     for acao in acoes:
 
-        r=analisar_acao(acao)
+        preco,var=preco_ativo(acao)
 
-        if r:
-            sinais.append(r)
+        if preco:
 
-        time.sleep(0.5)
+            score=abs(var)*10
+
+            sinais.append({
+            "acao":acao.replace(".SA",""),
+            "preco":round(preco,2),
+            "score":round(score,1)
+            })
+
+        time.sleep(1)
 
     sinais=sorted(sinais,key=lambda x:x["score"],reverse=True)
 
@@ -210,7 +132,7 @@ def noticias():
     return texto
 
 
-enviar("🤖 Robô financeiro iniciado com sucesso")
+enviar("🤖 Robô financeiro iniciado")
 
 
 while True:
