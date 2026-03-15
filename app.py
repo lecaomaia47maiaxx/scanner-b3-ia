@@ -2,8 +2,8 @@ import yfinance as yf
 import time
 import requests
 
-TOKEN = "8675758808:AAEhsr9A0HwFazy92GFUndyh2oSJFEhlMEE"
-CHAT_ID = "8675758808"
+TOKEN = "8447556070:AAEk6TTSJWkdSkd6CtxGMtTTNr5kRcoBvjY"
+CHAT_ID = "8447556070"
 
 def enviar(msg):
 
