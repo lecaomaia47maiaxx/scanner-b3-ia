@@ -1,15 +1,11 @@
 import yfinance as yf
-
-df = yf.download("BTC-USD", period="5d")
-print(df.tail())
-import yfinance as yf
 import pandas as pd
 import requests
 import feedparser
 import time
 
 TOKEN="8628983709:AAE5MH-87tpO0_JSiSlj-RgphyZpRgck3Oc"
-CHAT_ID= "8352381582"
+CHAT_ID="8352381582"
 
 print("ROBÔ GLOBAL INICIADO")
 
@@ -24,8 +20,8 @@ def enviar(msg):
         print("erro telegram")
 
 
-# download seguro de dados
-def baixar_dados(ticker,periodo="5d",intervalo=None):
+# download seguro
+def baixar(ticker,periodo="5d",intervalo=None):
 
     try:
 
@@ -56,18 +52,18 @@ indices={
 
 bitcoin="BTC-USD"
 
-# lista base B3
-base_acoes=[
-"PETR4.SA","VALE3.SA","ITUB4.SA","BBDC4.SA","BBAS3.SA",
-"WEGE3.SA","RENT3.SA","LREN3.SA","PRIO3.SA","RADL3.SA",
-"RAIL3.SA","B3SA3.SA","GGBR4.SA","USIM5.SA","CSNA3.SA",
-"MGLU3.SA","CMIG4.SA","EQTL3.SA","SBSP3.SA","VBBR3.SA",
-"UGPA3.SA","HAPV3.SA","TIMS3.SA","BRAP4.SA","KLBN11.SA",
-"SUZB3.SA","CPFE3.SA","CPLE6.SA","TAEE11.SA","ELET3.SA"
-]
 
-# expandir para ~300
-acoes=base_acoes*10
+# ações mais líquidas da B3
+acoes=[
+"PETR4.SA","VALE3.SA","ITUB4.SA","BBDC4.SA","BBAS3.SA",
+"B3SA3.SA","WEGE3.SA","RENT3.SA","PRIO3.SA","LREN3.SA",
+"RADL3.SA","RAIL3.SA","SUZB3.SA","GGBR4.SA","USIM5.SA",
+"CSNA3.SA","ELET3.SA","ELET6.SA","MGLU3.SA","HAPV3.SA",
+"EQTL3.SA","SBSP3.SA","VBBR3.SA","UGPA3.SA","TIMS3.SA",
+"BRAP4.SA","KLBN11.SA","CPFE3.SA","CPLE6.SA","TAEE11.SA",
+"ENEV3.SA","FLRY3.SA","MULT3.SA","BRFS3.SA","JBSS3.SA",
+"EMBR3.SA","CCRO3.SA","CYRE3.SA","EZTC3.SA","MRVE3.SA"
+]
 
 
 # análise índices globais
@@ -77,7 +73,7 @@ def analisar_indices():
 
     for nome,ticker in indices.items():
 
-        df=baixar_dados(ticker,"5d")
+        df=baixar(ticker,"5d")
 
         if df is None:
             continue
@@ -85,9 +81,6 @@ def analisar_indices():
         try:
 
             close=df["Close"].dropna()
-
-            if len(close)<2:
-                continue
 
             atual=float(close.iloc[-1])
             anterior=float(close.iloc[-2])
@@ -108,7 +101,7 @@ def analisar_indices():
 # bitcoin
 def analisar_bitcoin():
 
-    df=baixar_dados(bitcoin,"5d")
+    df=baixar(bitcoin,"5d")
 
     if df is None:
         return "Bitcoin sem dados"
@@ -128,22 +121,19 @@ def analisar_bitcoin():
         return "Bitcoin sem dados"
 
 
-# detectar acumulação institucional
-def detectar_acumulacao(df):
+# detectar acumulação
+def acumulacao(df):
 
     try:
 
         vol=df["Volume"]
-
-        if len(vol)<20:
-            return False
 
         media=vol.rolling(20).mean()
 
         atual=float(vol.iloc[-1])
         media=float(media.iloc[-1])
 
-        if atual>media*1.8:
+        if atual > media*1.8:
             return True
 
         return False
@@ -155,7 +145,7 @@ def detectar_acumulacao(df):
 # analisar ação
 def analisar_acao(ticker):
 
-    df=baixar_dados(ticker,"5d","5m")
+    df=baixar(ticker,"5d","5m")
 
     if df is None:
         return None
@@ -164,19 +154,14 @@ def analisar_acao(ticker):
 
         close=df["Close"].dropna()
 
-        if len(close)<2:
-            return None
-
         atual=float(close.iloc[-1])
         anterior=float(close.iloc[-2])
 
         variacao=(atual-anterior)/anterior*100
 
-        acumulacao=detectar_acumulacao(df)
-
         score=abs(variacao)*10
 
-        if acumulacao:
+        if acumulacao(df):
             score+=30
 
         return{
@@ -186,11 +171,10 @@ def analisar_acao(ticker):
         }
 
     except:
-
         return None
 
 
-# scanner mercado B3
+# scanner
 def scanner():
 
     sinais=[]
@@ -209,7 +193,7 @@ def scanner():
     return sinais[:10]
 
 
-# notícias financeiras
+# notícias
 def noticias():
 
     feed=feedparser.parse("https://news.google.com/rss/search?q=mercado+financeiro")
@@ -226,8 +210,8 @@ def noticias():
     return texto
 
 
-# loop principal
 enviar("🤖 Robô financeiro iniciado com sucesso")
+
 
 while True:
 
