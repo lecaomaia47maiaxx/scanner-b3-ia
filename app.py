@@ -13,36 +13,50 @@ print("ROBÔ B3 INICIADO")
 
 acoes = [
 "PETR4.SA","VALE3.SA","ITUB4.SA","BBDC4.SA","BBAS3.SA","WEGE3.SA",
-"RENT3.SA","LREN3.SA","SUZB3.SA","PRIO3.SA","JBSS3.SA","RADL3.SA",
-"RAIL3.SA","HAPV3.SA","B3SA3.SA","GGBR4.SA","USIM5.SA","CSNA3.SA",
-"BRFS3.SA","MRFG3.SA","MGLU3.SA","AZUL4.SA","GOLL4.SA","ELET3.SA",
-"ELET6.SA","CPLE6.SA","CMIG4.SA","ENGI11.SA","EQTL3.SA","SBSP3.SA",
-"KLBN11.SA","VBBR3.SA","UGPA3.SA","RAIZ4.SA","RRRP3.SA"
+"RENT3.SA","LREN3.SA","SUZB3.SA","PRIO3.SA","RADL3.SA","RAIL3.SA",
+"HAPV3.SA","B3SA3.SA","GGBR4.SA","USIM5.SA","CSNA3.SA","MGLU3.SA",
+"CMIG4.SA","ENGI11.SA","EQTL3.SA","SBSP3.SA","KLBN11.SA","VBBR3.SA",
+"UGPA3.SA","RAIZ4.SA"
 ]
 
-def detectar_acumulacao(preco, volume):
-
-    vol_media = volume.rolling(20).mean()
-
-    if len(preco) < 20:
-        return False
-
-    queda = (preco.iloc[-1] - preco.iloc[-5]) / preco.iloc[-5]
-
-    volume_forte = volume.iloc[-1] > vol_media.iloc[-1] * 1.8
-
-    if queda < -0.01 and volume_forte:
-        return True
-
-    return False
-
-
-def analisar(df, ticker):
+def detectar_acumulacao(df):
 
     try:
 
         preco = df["Close"]
         volume = df["Volume"]
+
+        vol_media = volume.rolling(20).mean()
+
+        queda = (preco.iloc[-1] - preco.iloc[-5]) / preco.iloc[-5]
+
+        volume_forte = volume.iloc[-1] > vol_media.iloc[-1] * 1.7
+
+        if queda < -0.01 and volume_forte:
+            return True
+
+        return False
+
+    except:
+        return False
+
+
+def analisar(ticker):
+
+    try:
+
+        df = yf.download(
+            ticker,
+            period="5d",
+            interval="5m",
+            progress=False,
+            threads=False
+        )
+
+        if df.empty:
+            return None
+
+        preco = df["Close"]
 
         preco_atual = preco.iloc[-1]
         preco_ant = preco.iloc[-2]
@@ -52,18 +66,18 @@ def analisar(df, ticker):
         if queda > -0.7:
             return None
 
-        acumulacao = detectar_acumulacao(preco, volume)
+        acumulacao = detectar_acumulacao(df)
 
-        volatilidade = preco.pct_change().std() * 100
+        volatilidade = preco.pct_change().std()*100
 
-        prob = abs(queda)*12 + volatilidade*6
+        prob = abs(queda)*10 + volatilidade*5
 
         if acumulacao:
-            prob += 25
+            prob += 20
 
-        prob = min(95, prob)
+        prob = min(90, prob)
 
-        alvo = preco_atual * 1.025
+        alvo = preco_atual * 1.02
         stop = preco_atual * 0.98
 
         return {
@@ -81,69 +95,37 @@ def analisar(df, ticker):
         return None
 
 
-def baixar_dados():
-
-    dados = {}
-
-    for ticker in acoes:
-
-        try:
-
-            df = yf.download(
-                ticker,
-                period="5d",
-                interval="5m",
-                progress=False
-            )
-
-            if not df.empty:
-                dados[ticker] = df
-
-        except:
-
-            pass
-
-    return dados
-
-
-def escanear():
-
-    print("Baixando dados...")
-
-    dados = baixar_dados()
-
-    oportunidades = []
-
-    for ticker, df in dados.items():
-
-        r = analisar(df, ticker)
-
-        if r and r["prob"] > 60:
-
-            oportunidades.append(r)
-
-    oportunidades = sorted(
-        oportunidades,
-        key=lambda x: x["prob"],
-        reverse=True
-    )
-
-    return oportunidades[:20]
-
-
 while True:
 
-    print("Escaneando mercado...")
+    try:
 
-    lista = escanear()
+        print("Escaneando mercado...")
 
-    if lista:
+        oportunidades = []
 
-        msg = "🚨 SCANNER B3\n\n"
+        for ticker in acoes:
 
-        for a in lista:
+            r = analisar(ticker)
 
-            msg += f"""
+            if r and r["prob"] > 60:
+
+                oportunidades.append(r)
+
+        oportunidades = sorted(
+            oportunidades,
+            key=lambda x: x["prob"],
+            reverse=True
+        )
+
+        oportunidades = oportunidades[:10]
+
+        if oportunidades:
+
+            msg = "🚨 SCANNER B3\n\n"
+
+            for a in oportunidades:
+
+                msg += f"""
 {a['acao']}
 
 Preço: {a['preco']}
@@ -156,17 +138,21 @@ Stop: {a['stop']}
 Probabilidade subir hoje: {a['prob']}%
 """
 
-            if a["acumulacao"]:
-                msg += "💰 ACUMULAÇÃO INSTITUCIONAL\n"
+                if a["acumulacao"]:
+                    msg += "💰 Acumulação institucional detectada\n"
 
-            msg += "-------------------\n"
+                msg += "-----------------\n"
 
-        bot.send_message(chat_id=CHAT_ID, text=msg)
+            bot.send_message(chat_id=CHAT_ID, text=msg)
 
-        print("Sinais enviados")
+            print("Sinais enviados")
 
-    else:
+        else:
 
-        print("Nenhuma oportunidade encontrada")
+            print("Nenhuma oportunidade encontrada")
+
+    except Exception as e:
+
+        print("Erro no ciclo:", e)
 
     time.sleep(180)
