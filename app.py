@@ -1,189 +1,174 @@
-import requests
+import yfinance as yf
+import pandas as pd
+import numpy as np
 import time
-import feedparser
+from telegram import Bot
+from sklearn.ensemble import RandomForestClassifier
 
-TOKEN="8628983709:AAE5MH-87tpO0_JSiSlj-RgphyZpRgck3Oc"
-CHAT_ID="8352381582"
+TOKEN = "8628983709:AAE5MH-87tpO0_JSiSlj-RgphyZpRgck3Oc"
+CHAT_ID = "8352381582"
 
-print("ROBÔ GLOBAL INICIADO")
+bot = Bot(token=TOKEN)
 
-
-def enviar(msg):
-
-    url=f"https://api.telegram.org/bot{TOKEN}/sendMessage"
-
-    try:
-        requests.post(url,data={"chat_id":CHAT_ID,"text":msg})
-    except:
-        print("Erro Telegram")
-
-
-# pegar vários ativos ao mesmo tempo
-def pegar_ativos(lista):
-
-    try:
-
-        ativos=",".join(lista)
-
-        url=f"https://brapi.dev/api/quote/{ativos}"
-
-        r=requests.get(url,timeout=10).json()
-
-        dados={}
-
-        for item in r["results"]:
-
-            dados[item["symbol"]] = {
-                "preco": item.get("regularMarketPrice"),
-                "var": item.get("regularMarketChangePercent")
-            }
-
-        return dados
-
-    except:
-
-        return {}
-
-
-# índices globais
-indices={
-"S&P500":"^GSPC",
-"NASDAQ":"^IXIC",
-"DOW":"^DJI"
-}
-
-
-# ações líquidas B3
-acoes=[
-"PETR4","VALE3","ITUB4","BBDC4","BBAS3",
-"B3SA3","WEGE3","RENT3","PRIO3","LREN3",
-"RADL3","RAIL3","SUZB3","GGBR4","USIM5",
-"CSNA3","ELET3","MGLU3","HAPV3","EQTL3"
+# lista ampla de ações líquidas
+acoes = [
+"PETR4.SA","VALE3.SA","ITUB4.SA","BBDC4.SA","BBAS3.SA",
+"WEGE3.SA","RENT3.SA","LREN3.SA","SUZB3.SA","PRIO3.SA",
+"JBSS3.SA","RAIL3.SA","RADL3.SA","ELET3.SA","ELET6.SA",
+"GGBR4.SA","USIM5.SA","CSNA3.SA","BRFS3.SA","HAPV3.SA",
+"AZUL4.SA","GOLL4.SA","MGLU3.SA","NTCO3.SA","B3SA3.SA"
 ]
 
+def baixar_dados(ticker):
 
-def analisar_indices(dados):
+    df = yf.download(ticker, period="2y", interval="1d")
 
-    texto=""
+    df["retorno"] = df["Close"].pct_change()
+    df["ma20"] = df["Close"].rolling(20).mean()
 
-    for nome,ticker in indices.items():
+    delta = df["Close"].diff()
+    gain = delta.clip(lower=0)
+    loss = -delta.clip(upper=0)
 
-        if ticker in dados:
+    avg_gain = gain.rolling(14).mean()
+    avg_loss = loss.rolling(14).mean()
 
-            var=dados[ticker]["var"]
+    rs = avg_gain / avg_loss
 
-            if var!=None:
+    df["rsi"] = 100 - (100/(1+rs))
 
-                texto+=f"{nome}: {round(var,2)}%\n"
+    df["volume_media"] = df["Volume"].rolling(20).mean()
 
-    if texto=="":
-        texto="Sem dados\n"
+    df["reversao"] = np.where(df["Close"].shift(-1) > df["Close"],1,0)
 
-    return texto
+    return df.dropna()
 
+def treinar_modelo(df):
 
-def analisar_bitcoin(dados):
+    X = df[["retorno","rsi","Volume","volume_media"]]
 
-    if "BTC-USD" in dados:
+    y = df["reversao"]
 
-        preco=dados["BTC-USD"]["preco"]
-        var=dados["BTC-USD"]["var"]
+    model = RandomForestClassifier()
 
-        if preco:
+    model.fit(X,y)
 
-            return f"Bitcoin ${round(preco,2)} ({round(var,2)}%)"
+    return model
 
-    return "Bitcoin sem dados"
+def analisar_acao(ticker):
 
+    df = baixar_dados(ticker)
 
-def scanner(dados):
+    model = treinar_modelo(df)
 
-    sinais=[]
+    ultimo = df.iloc[-1]
+
+    queda = ultimo["retorno"]*100
+
+    if queda > -1:
+        return None
+
+    X_pred = [[
+        ultimo["retorno"],
+        ultimo["rsi"],
+        ultimo["Volume"],
+        ultimo["volume_media"]
+    ]]
+
+    prob = model.predict_proba(X_pred)[0][1]
+
+    if prob < 0.60:
+        return None
+
+    preco = ultimo["Close"]
+
+    alvo_day = preco*1.02
+    alvo_swing = preco*1.05
+    stop = preco*0.98
+
+    volume_inst = ultimo["Volume"] > ultimo["volume_media"]*1.5
+
+    return {
+        "acao":ticker.replace(".SA",""),
+        "preco":round(preco,2),
+        "queda":round(queda,2),
+        "prob":round(prob*100,1),
+        "entrada":round(preco,2),
+        "alvo_day":round(alvo_day,2),
+        "alvo_swing":round(alvo_swing,2),
+        "stop":round(stop,2),
+        "volume":volume_inst
+    }
+
+def escanear_mercado():
+
+    oportunidades=[]
 
     for acao in acoes:
 
-        if acao in dados:
-
-            preco=dados[acao]["preco"]
-            var=dados[acao]["var"]
-
-            if preco and var!=None:
-
-                score=abs(var)*10
-
-                sinais.append({
-                    "acao":acao,
-                    "preco":round(preco,2),
-                    "score":round(score,1)
-                })
-
-    sinais=sorted(sinais,key=lambda x:x["score"],reverse=True)
-
-    return sinais[:10]
-
-
-# notícias
-def noticias():
-
-    feed=feedparser.parse(
-    "https://news.google.com/rss/search?q=mercado+financeiro+brasil&hl=pt-BR&gl=BR&ceid=BR:pt-419"
-    )
-
-    texto=""
-
-    for i in range(5):
-
         try:
-            texto+=feed.entries[i].title+"\n"
+
+            r = analisar_acao(acao)
+
+            if r:
+                oportunidades.append(r)
+
         except:
             pass
 
-    return texto
+    oportunidades=sorted(
+        oportunidades,
+        key=lambda x:x["prob"],
+        reverse=True
+    )
 
+    return oportunidades[:20]
 
-enviar("🤖 Robô financeiro iniciado com sucesso")
+def gerar_mensagem(lista):
 
+    msg="📊 TOP OPORTUNIDADES B3\n\n"
 
-while True:
+    for a in lista:
 
-    try:
+        msg+=f"""
+📈 {a['acao']}
 
-        print("Gerando relatório...")
+Preço atual: {a['preco']}
+Queda: {a['queda']}%
 
-        ativos=list(indices.values()) + acoes + ["BTC-USD"]
+Entrada: {a['entrada']}
 
-        dados=pegar_ativos(ativos)
+🎯 Day Trade: {a['alvo_day']}
+📊 Swing: {a['alvo_swing']}
+⛔ Stop: {a['stop']}
 
-        msg="🌎 RELATÓRIO GLOBAL\n\n"
+Probabilidade: {a['prob']}%
 
-        msg+="📊 ÍNDICES GLOBAIS\n"
-        msg+=analisar_indices(dados)+"\n"
+"""
 
-        msg+="₿ "+analisar_bitcoin(dados)+"\n\n"
+        if a["volume"]:
+            msg+="💰 Volume institucional detectado\n"
 
-        msg+="📰 Notícias\n"
-        msg+=noticias()+"\n"
+        msg+="-----------------\n"
 
-        sinais=scanner(dados)
+    return msg
 
-        if sinais:
+def loop():
 
-            msg+="\n📈 Ranking B3\n"
+    while True:
 
-            for s in sinais:
+        lista=escanear_mercado()
 
-                msg+=f"{s['acao']} | R${s['preco']} | score {s['score']}\n"
+        if lista:
 
-        else:
+            texto=gerar_mensagem(lista)
 
-            msg+="Sem oportunidades na B3 agora"
+            bot.send_message(
+                chat_id=CHAT_ID,
+                text=texto
+            )
 
-        enviar(msg)
+        time.sleep(1800)
 
-        print("Relatório enviado")
-
-    except Exception as e:
-
-        print("Erro:",e)
-
-    time.sleep(600)
+if __name__=="__main__":
+    loop()
