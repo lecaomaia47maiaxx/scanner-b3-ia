@@ -4,6 +4,7 @@ import feedparser
 
 TOKEN="8628983709:AAE5MH-87tpO0_JSiSlj-RgphyZpRgck3Oc"
 CHAT_ID="8352381582"
+API_KEY="OYSICYD1972XILCB"
 
 print("ROBÔ GLOBAL INICIADO")
 
@@ -18,108 +19,57 @@ def enviar(msg):
         print("Erro Telegram")
 
 
-# pegar vários ativos ao mesmo tempo
-def pegar_ativos(lista):
+# pegar preço de ativo
+def preco_acao(ticker):
 
     try:
 
-        ativos=",".join(lista)
+        url=f"https://www.alphavantage.co/query?function=GLOBAL_QUOTE&symbol={ticker}&apikey={API_KEY}"
 
-        url=f"https://brapi.dev/api/quote/{ativos}"
+        r=requests.get(url).json()
 
-        r=requests.get(url,timeout=10).json()
+        dados=r["Global Quote"]
 
-        dados={}
+        preco=float(dados["05. price"])
+        var=float(dados["10. change percent"].replace("%",""))
 
-        for item in r["results"]:
-
-            dados[item["symbol"]] = {
-                "preco": item.get("regularMarketPrice"),
-                "var": item.get("regularMarketChangePercent")
-            }
-
-        return dados
+        return preco,var
 
     except:
 
-        return {}
-
-
-# índices globais
-indices={
-"S&P500":"^GSPC",
-"NASDAQ":"^IXIC",
-"DOW":"^DJI"
-}
+        return None,None
 
 
 # ações líquidas B3
 acoes=[
-"PETR4","VALE3","ITUB4","BBDC4","BBAS3",
-"B3SA3","WEGE3","RENT3","PRIO3","LREN3",
-"RADL3","RAIL3","SUZB3","GGBR4","USIM5",
-"CSNA3","ELET3","MGLU3","HAPV3","EQTL3"
+"PETR4.SA","VALE3.SA","ITUB4.SA","BBDC4.SA","BBAS3.SA",
+"B3SA3.SA","WEGE3.SA","RENT3.SA","PRIO3.SA","LREN3.SA"
 ]
 
 
-def analisar_indices(dados):
-
-    texto=""
-
-    for nome,ticker in indices.items():
-
-        if ticker in dados:
-
-            var=dados[ticker]["var"]
-
-            if var!=None:
-
-                texto+=f"{nome}: {round(var,2)}%\n"
-
-    if texto=="":
-        texto="Sem dados\n"
-
-    return texto
-
-
-def analisar_bitcoin(dados):
-
-    if "BTC-USD" in dados:
-
-        preco=dados["BTC-USD"]["preco"]
-        var=dados["BTC-USD"]["var"]
-
-        if preco:
-
-            return f"Bitcoin ${round(preco,2)} ({round(var,2)}%)"
-
-    return "Bitcoin sem dados"
-
-
-def scanner(dados):
+def scanner():
 
     sinais=[]
 
     for acao in acoes:
 
-        if acao in dados:
+        preco,var=preco_acao(acao)
 
-            preco=dados[acao]["preco"]
-            var=dados[acao]["var"]
+        if preco:
 
-            if preco and var!=None:
+            score=abs(var)*10
 
-                score=abs(var)*10
+            sinais.append({
+                "acao":acao.replace(".SA",""),
+                "preco":round(preco,2),
+                "score":round(score,1)
+            })
 
-                sinais.append({
-                    "acao":acao,
-                    "preco":round(preco,2),
-                    "score":round(score,1)
-                })
+        time.sleep(15)  # limite da API
 
     sinais=sorted(sinais,key=lambda x:x["score"],reverse=True)
 
-    return sinais[:10]
+    return sinais[:5]
 
 
 # notícias
@@ -141,7 +91,7 @@ def noticias():
     return texto
 
 
-enviar("🤖 Robô financeiro iniciado com sucesso")
+enviar("🤖 Robô financeiro iniciado")
 
 
 while True:
@@ -150,21 +100,12 @@ while True:
 
         print("Gerando relatório...")
 
-        ativos=list(indices.values()) + acoes + ["BTC-USD"]
-
-        dados=pegar_ativos(ativos)
-
-        msg="🌎 RELATÓRIO GLOBAL\n\n"
-
-        msg+="📊 ÍNDICES GLOBAIS\n"
-        msg+=analisar_indices(dados)+"\n"
-
-        msg+="₿ "+analisar_bitcoin(dados)+"\n\n"
+        msg="🌎 RELATÓRIO FINANCEIRO\n\n"
 
         msg+="📰 Notícias\n"
         msg+=noticias()+"\n"
 
-        sinais=scanner(dados)
+        sinais=scanner()
 
         if sinais:
 
@@ -176,7 +117,7 @@ while True:
 
         else:
 
-            msg+="Sem oportunidades na B3 agora"
+            msg+="Sem dados de mercado agora"
 
         enviar(msg)
 
@@ -186,4 +127,4 @@ while True:
 
         print("Erro:",e)
 
-    time.sleep(600)
+    time.sleep(900)
