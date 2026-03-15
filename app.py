@@ -5,7 +5,6 @@ import datetime
 import time
 from telegram import Bot
 
-# CONFIGURAR TELEGRAM
 TOKEN = "8675758808:AAEhsr9A0HwFazy92GFUndyh2oSJFEhlMEE"
 CHAT_ID = "8675758808"
 
@@ -13,11 +12,13 @@ bot = Bot(token=TOKEN)
 
 print("ROBÔ B3 INICIADO")
 
-# AÇÕES PRINCIPAIS DA B3
+# LISTA GRANDE DE AÇÕES DA B3
 acoes = [
-"PETR4.SA","VALE3.SA","ITUB4.SA","BBDC4.SA","BBAS3.SA",
-"WEGE3.SA","RENT3.SA","LREN3.SA","SUZB3.SA","PRIO3.SA",
-"JBSS3.SA","RADL3.SA","RAIL3.SA","HAPV3.SA","B3SA3.SA"
+"PETR4.SA","VALE3.SA","ITUB4.SA","BBDC4.SA","BBAS3.SA","WEGE3.SA","RENT3.SA",
+"LREN3.SA","SUZB3.SA","PRIO3.SA","JBSS3.SA","RADL3.SA","RAIL3.SA","HAPV3.SA",
+"B3SA3.SA","GGBR4.SA","USIM5.SA","CSNA3.SA","BRFS3.SA","MRFG3.SA","MGLU3.SA",
+"AZUL4.SA","GOLL4.SA","ELET3.SA","ELET6.SA","CPLE6.SA","CMIG4.SA","ENGI11.SA",
+"EQTL3.SA","SBSP3.SA","KLBN11.SA","VBBR3.SA","UGPA3.SA","RAIZ4.SA","RRRP3.SA"
 ]
 
 def mercado_aberto():
@@ -29,12 +30,13 @@ def mercado_aberto():
 
 def analisar_acao(ticker):
 
-    df = yf.download(ticker, period="1y", interval="1d")
+    df = yf.download(ticker, period="6mo", interval="1d")
 
     if len(df) < 30:
         return None
 
     df["retorno"] = df["Close"].pct_change()*100
+    df["vol_media"] = df["Volume"].rolling(20).mean()
 
     hoje = df.iloc[-1]
 
@@ -42,6 +44,8 @@ def analisar_acao(ticker):
 
     if queda > -1.5:
         return None
+
+    volume_inst = hoje["Volume"] > hoje["vol_media"] * 1.5
 
     historico = df[df["retorno"] <= queda]
 
@@ -61,7 +65,8 @@ def analisar_acao(ticker):
         "queda":round(queda,2),
         "prob":round(reversao*100,1),
         "alvo":round(alvo,2),
-        "stop":round(stop,2)
+        "stop":round(stop,2),
+        "volume":volume_inst
     }
 
 
@@ -88,7 +93,7 @@ def escanear():
         reverse=True
     )
 
-    return oportunidades[:10]
+    return oportunidades[:20]
 
 
 while True:
@@ -99,7 +104,7 @@ while True:
 
         if lista:
 
-            msg = "📊 OPORTUNIDADES B3\n\n"
+            msg = "📊 TOP 20 OPORTUNIDADES B3\n\n"
 
             for a in lista:
 
@@ -114,9 +119,12 @@ Venda: {a['alvo']}
 Stop: {a['stop']}
 
 Probabilidade: {a['prob']}%
-
-------------------
 """
+
+                if a["volume"]:
+                    msg += "💰 Volume institucional detectado\n"
+
+                msg += "------------------\n"
 
             bot.send_message(chat_id=CHAT_ID,text=msg)
 
@@ -126,4 +134,4 @@ Probabilidade: {a['prob']}%
 
         print("Aguardando mercado abrir...")
 
-    time.sleep(600)
+    time.sleep(60)
