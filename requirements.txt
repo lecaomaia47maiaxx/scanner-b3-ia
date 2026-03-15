@@ -1,7 +1,4 @@
+yfinance
 pandas
 numpy
-yfinance
-tensorflow
-scikit-learn
-flask
 python-telegram-bot
