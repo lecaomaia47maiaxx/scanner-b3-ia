@@ -7,6 +7,7 @@ CHAT_ID="8352381582"
 
 print("ROBÔ GLOBAL INICIADO")
 
+
 def enviar(msg):
 
     url=f"https://api.telegram.org/bot{TOKEN}/sendMessage"
@@ -14,27 +15,25 @@ def enviar(msg):
     try:
         requests.post(url,data={"chat_id":CHAT_ID,"text":msg})
     except:
-        print("Erro ao enviar Telegram")
+        print("Erro Telegram")
 
 
-# pegar preço de ativo
+# pegar preço via BRAPI
 def preco_ativo(ticker):
 
     try:
 
-        url=f"https://query1.finance.yahoo.com/v8/finance/chart/{ticker}"
+        url=f"https://brapi.dev/api/quote/{ticker}"
 
-        r=requests.get(url,timeout=10).json()
+        r=requests.get(url).json()
 
-        meta=r["chart"]["result"][0]["meta"]
+        dados=r["results"][0]
 
-        preco=meta["regularMarketPrice"]
+        preco=dados["regularMarketPrice"]
 
-        anterior=meta["previousClose"]
+        var=dados["regularMarketChangePercent"]
 
-        variacao=(preco-anterior)/anterior*100
-
-        return preco,variacao
+        return preco,var
 
     except:
 
@@ -81,10 +80,10 @@ def analisar_bitcoin():
 
 # ações líquidas B3
 acoes=[
-"PETR4.SA","VALE3.SA","ITUB4.SA","BBDC4.SA","BBAS3.SA",
-"B3SA3.SA","WEGE3.SA","RENT3.SA","PRIO3.SA","LREN3.SA",
-"RADL3.SA","RAIL3.SA","SUZB3.SA","GGBR4.SA","USIM5.SA",
-"CSNA3.SA","ELET3.SA","MGLU3.SA","HAPV3.SA","EQTL3.SA"
+"PETR4","VALE3","ITUB4","BBDC4","BBAS3",
+"B3SA3","WEGE3","RENT3","PRIO3","LREN3",
+"RADL3","RAIL3","SUZB3","GGBR4","USIM5",
+"CSNA3","ELET3","MGLU3","HAPV3","EQTL3"
 ]
 
 
@@ -101,7 +100,7 @@ def scanner():
             score=abs(var)*10
 
             sinais.append({
-                "acao":acao.replace(".SA",""),
+                "acao":acao,
                 "preco":round(preco,2),
                 "score":round(score,1)
             })
@@ -113,7 +112,7 @@ def scanner():
     return sinais[:10]
 
 
-# notícias em português
+# notícias
 def noticias():
 
     feed=feedparser.parse(
@@ -132,7 +131,7 @@ def noticias():
     return texto
 
 
-enviar("🤖 Robô financeiro iniciado com sucesso")
+enviar("🤖 Robô financeiro iniciado")
 
 
 while True:
