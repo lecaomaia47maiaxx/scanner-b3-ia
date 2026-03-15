@@ -11,7 +11,6 @@ bot = Bot(token=TOKEN)
 
 print("ROBÔ B3 INICIADO")
 
-# LISTA DE AÇÕES (replicada para aumentar universo analisado)
 acoes = [
 "PETR4.SA","VALE3.SA","ITUB4.SA","BBDC4.SA","BBAS3.SA","WEGE3.SA",
 "RENT3.SA","LREN3.SA","SUZB3.SA","PRIO3.SA","JBSS3.SA","RADL3.SA",
@@ -21,39 +20,29 @@ acoes = [
 "KLBN11.SA","VBBR3.SA","UGPA3.SA","RAIZ4.SA","RRRP3.SA"
 ]
 
-acoes = acoes * 8   # aumenta universo (~280 ativos)
-
 def detectar_acumulacao(preco, volume):
 
-    try:
+    vol_media = volume.rolling(20).mean()
 
-        vol_media = volume.rolling(20).mean()
-
-        if len(preco) < 20:
-            return False
-
-        queda = (preco.iloc[-1] - preco.iloc[-5]) / preco.iloc[-5]
-
-        volume_forte = volume.iloc[-1] > vol_media.iloc[-1] * 1.8
-
-        if queda < -0.01 and volume_forte:
-            return True
-
+    if len(preco) < 20:
         return False
 
-    except:
-        return False
+    queda = (preco.iloc[-1] - preco.iloc[-5]) / preco.iloc[-5]
+
+    volume_forte = volume.iloc[-1] > vol_media.iloc[-1] * 1.8
+
+    if queda < -0.01 and volume_forte:
+        return True
+
+    return False
 
 
-def analisar_acao(df, ticker):
+def analisar(df, ticker):
 
     try:
 
         preco = df["Close"]
         volume = df["Volume"]
-
-        if len(preco) < 30:
-            return None
 
         preco_atual = preco.iloc[-1]
         preco_ant = preco.iloc[-2]
@@ -67,7 +56,7 @@ def analisar_acao(df, ticker):
 
         volatilidade = preco.pct_change().std() * 100
 
-        prob = abs(queda) * 12 + volatilidade * 6
+        prob = abs(queda)*12 + volatilidade*6
 
         if acumulacao:
             prob += 25
@@ -88,64 +77,69 @@ def analisar_acao(df, ticker):
         }
 
     except:
+
         return None
 
 
-def escanear():
+def baixar_dados():
 
-    print("Escaneando mercado...")
-
-    try:
-
-        dados = yf.download(
-            acoes,
-            period="5d",
-            interval="5m",
-            group_by="ticker",
-            progress=False
-        )
-
-    except:
-
-        print("Erro ao baixar dados")
-
-        return []
-
-    oportunidades = []
+    dados = {}
 
     for ticker in acoes:
 
         try:
 
-            df = dados[ticker]
+            df = yf.download(
+                ticker,
+                period="5d",
+                interval="5m",
+                progress=False
+            )
 
-            r = analisar_acao(df, ticker)
-
-            if r and r["prob"] > 60:
-
-                oportunidades.append(r)
+            if not df.empty:
+                dados[ticker] = df
 
         except:
+
             pass
+
+    return dados
+
+
+def escanear():
+
+    print("Baixando dados...")
+
+    dados = baixar_dados()
+
+    oportunidades = []
+
+    for ticker, df in dados.items():
+
+        r = analisar(df, ticker)
+
+        if r and r["prob"] > 60:
+
+            oportunidades.append(r)
 
     oportunidades = sorted(
         oportunidades,
-        key=lambda x:x["prob"],
+        key=lambda x: x["prob"],
         reverse=True
     )
 
     return oportunidades[:20]
 
 
-# TESTE IMEDIATO (não depende de horário)
-
 while True:
+
+    print("Escaneando mercado...")
 
     lista = escanear()
 
     if lista:
 
-        msg = "🚨 SCANNER B3 - TESTE\n\n"
+        msg = "🚨 SCANNER B3\n\n"
 
         for a in lista:
 
@@ -163,12 +157,16 @@ Probabilidade subir hoje: {a['prob']}%
 """
 
             if a["acumulacao"]:
-                msg += "💰 ACUMULAÇÃO INSTITUCIONAL DETECTADA\n"
+                msg += "💰 ACUMULAÇÃO INSTITUCIONAL\n"
 
-            msg += "-----------------\n"
+            msg += "-------------------\n"
 
         bot.send_message(chat_id=CHAT_ID, text=msg)
 
         print("Sinais enviados")
 
-    time.sleep(120)
+    else:
+
+        print("Nenhuma oportunidade encontrada")
+
+    time.sleep(180)
