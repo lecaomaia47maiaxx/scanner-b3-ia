@@ -1,4 +1,7 @@
-yfinance
-pandas
-numpy
 python-telegram-bot
+pandas
+yfinance
+ta
+requests
+flask
+gunicorn
