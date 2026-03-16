@@ -1,7 +1,7 @@
-python-telegram-bot
 pandas
 yfinance
 ta
 requests
+python-telegram-bot
 flask
 gunicorn
