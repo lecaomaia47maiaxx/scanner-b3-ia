@@ -1,129 +1,87 @@
+import time
+import requests
 import yfinance as yf
 import pandas as pd
-import numpy as np
-import datetime
-import time
-from telegram import Bot
+import ta
 
-# CONFIGURAR TELEGRAM
 TOKEN = "8628983709:AAE5MH-87tpO0_JSiSlj-RgphyZpRgck3Oc"
 CHAT_ID = "8352381582"
 
-bot = Bot(token=TOKEN)
-
-print("ROBÔ B3 INICIADO")
-
-# AÇÕES PRINCIPAIS DA B3
 acoes = [
-"PETR4.SA","VALE3.SA","ITUB4.SA","BBDC4.SA","BBAS3.SA",
-"WEGE3.SA","RENT3.SA","LREN3.SA","SUZB3.SA","PRIO3.SA",
-"JBSS3.SA","RADL3.SA","RAIL3.SA","HAPV3.SA","B3SA3.SA"
+    "PETR4.SA",
+    "VALE3.SA",
+    "ITUB4.SA",
+    "BBDC4.SA",
+    "ABEV3.SA",
+    "WEGE3.SA",
+    "BBAS3.SA",
+    "B3SA3.SA",
+    "JBSS3.SA",
+    "PETR3.SA"
 ]
 
-def mercado_aberto():
 
-    agora = datetime.datetime.now()
+def enviar_telegram(msg):
 
-    return agora.hour >= 10 and agora.hour <= 17
+    url = f"https://api.telegram.org/bot{TOKEN}/sendMessage"
+
+    payload = {
+        "chat_id": CHAT_ID,
+        "text": msg
+    }
+
+    requests.post(url, data=payload)
 
 
 def analisar_acao(ticker):
 
-    df = yf.download(ticker, period="1y", interval="1d")
+    dados = yf.download(ticker, period="3mo", interval="1d")
 
-    if len(df) < 30:
-        return None
+    if dados.empty:
+        return f"{ticker} sem dados"
 
-    df["retorno"] = df["Close"].pct_change()*100
+    dados["RSI"] = ta.momentum.RSIIndicator(
+        dados["Close"]).rsi()
 
-    hoje = df.iloc[-1]
+    rsi = dados["RSI"].iloc[-1]
 
-    queda = hoje["retorno"]
+    if rsi < 30:
+        sinal = "🟢 POSSÍVEL COMPRA"
 
-    if queda > -1.5:
-        return None
+    elif rsi > 70:
+        sinal = "🔴 POSSÍVEL VENDA"
 
-    historico = df[df["retorno"] <= queda]
+    else:
+        sinal = "⚪ NEUTRO"
 
-    if len(historico) < 5:
-        return None
-
-    reversao = (historico["Close"].shift(-1) > historico["Close"]).mean()
-
-    preco = hoje["Close"]
-
-    alvo = preco * 1.02
-    stop = preco * 0.98
-
-    return {
-        "acao":ticker.replace(".SA",""),
-        "preco":round(preco,2),
-        "queda":round(queda,2),
-        "prob":round(reversao*100,1),
-        "alvo":round(alvo,2),
-        "stop":round(stop,2)
-    }
+    return f"{ticker} | RSI {round(rsi,2)} | {sinal}"
 
 
-def escanear():
+def gerar_relatorio():
 
-    oportunidades = []
+    relatorio = "📊 RELATÓRIO B3\n\n"
 
     for acao in acoes:
 
-        try:
+        resultado = analisar_acao(acao)
 
-            r = analisar_acao(acao)
+        relatorio += resultado + "\n"
 
-            if r and r["prob"] > 60:
-
-                oportunidades.append(r)
-
-        except:
-            pass
-
-    oportunidades = sorted(
-        oportunidades,
-        key=lambda x:x["prob"],
-        reverse=True
-    )
-
-    return oportunidades[:10]
+    return relatorio
 
 
 while True:
 
-    if mercado_aberto():
+    try:
 
-        lista = escanear()
+        relatorio = gerar_relatorio()
 
-        if lista:
+        enviar_telegram(relatorio)
 
-            msg = "📊 OPORTUNIDADES B3\n\n"
+        print("Relatório enviado")
 
-            for a in lista:
+    except Exception as e:
 
-                msg += f"""
-{a['acao']}
+        print("Erro:", e)
 
-Preço atual: {a['preco']}
-Queda: {a['queda']}%
-
-Entrada: {a['preco']}
-Venda: {a['alvo']}
-Stop: {a['stop']}
-
-Probabilidade: {a['prob']}%
-
-------------------
-"""
-
-            bot.send_message(chat_id=CHAT_ID,text=msg)
-
-            print("Sinal enviado")
-
-    else:
-
-        print("Aguardando mercado abrir...")
-
-    time.sleep(600)
+    time.sleep(1800)
