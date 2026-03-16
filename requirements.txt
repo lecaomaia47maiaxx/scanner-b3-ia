@@ -1,2 +1,5 @@
-requests
-feedparser
+yfinance
+pandas
+numpy
+scikit-learn
+python-telegram-bot
