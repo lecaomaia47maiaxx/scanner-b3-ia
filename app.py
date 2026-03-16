@@ -2,37 +2,31 @@ import time
 import requests
 import yfinance as yf
 import pandas as pd
-import ta
+import numpy as np
 
-# ==============================
-# CONFIGURAÇÕES TELEGRAM
-# ==============================
+# =====================================
+# TELEGRAM
+# =====================================
 
 TOKEN = "8628983709:AAE5MH-87tpO0_JSiSlj-RgphyZpRgck3Oc"
 CHAT_ID = "8352381582"
 
-# ==============================
-# LISTA DE AÇÕES DA B3
-# ==============================
+# =====================================
+# AÇÕES MAIS LÍQUIDAS B3
+# =====================================
 
 acoes = [
-    "PETR4.SA",
-    "VALE3.SA",
-    "ITUB4.SA",
-    "BBDC4.SA",
-    "ABEV3.SA",
-    "WEGE3.SA",
-    "BBAS3.SA",
-    "B3SA3.SA",
-    "JBSS3.SA",
-    "PETR3.SA"
+"PETR4.SA","VALE3.SA","ITUB4.SA","BBDC4.SA",
+"ABEV3.SA","BBAS3.SA","WEGE3.SA","B3SA3.SA",
+"JBSS3.SA","RENT3.SA","LREN3.SA","PRIO3.SA",
+"SUZB3.SA","RADL3.SA","RAIL3.SA"
 ]
 
-# ==============================
-# ENVIAR MENSAGEM TELEGRAM
-# ==============================
+# =====================================
+# ENVIAR TELEGRAM
+# =====================================
 
-def enviar_telegram(msg):
+def enviar(msg):
 
     url = f"https://api.telegram.org/bot{TOKEN}/sendMessage"
 
@@ -42,15 +36,13 @@ def enviar_telegram(msg):
     }
 
     try:
-        requests.post(url, data=payload)
+        requests.post(url,data=payload)
+    except:
+        print("erro telegram")
 
-    except Exception as erro:
-        print("Erro ao enviar Telegram:", erro)
-
-
-# ==============================
-# ANALISAR AÇÃO
-# ==============================
+# =====================================
+# ANALISE ESTATISTICA
+# =====================================
 
 def analisar_acao(ticker):
 
@@ -58,59 +50,105 @@ def analisar_acao(ticker):
 
         dados = yf.download(
             ticker,
-            period="3mo",
+            period="10y",
             interval="1d",
             progress=False
         )
 
-        if dados.empty:
-            return f"{ticker} sem dados"
+        if len(dados) < 200:
+            return None
 
-        # Corrige erro de dimensão
-        close = dados["Close"].squeeze()
+        close = dados["Close"]
 
-        rsi = ta.momentum.RSIIndicator(close).rsi()
+        # retorno 5 dias
+        retorno = close.pct_change(5)
 
-        rsi_atual = rsi.iloc[-1]
+        queda_atual = retorno.iloc[-1]
 
-        if rsi_atual < 30:
-            sinal = "🟢 POSSÍVEL COMPRA"
+        if queda_atual > -0.03:
+            return None
 
-        elif rsi_atual > 70:
-            sinal = "🔴 POSSÍVEL VENDA"
+        historico = retorno.dropna()
 
-        else:
-            sinal = "⚪ NEUTRO"
+        # encontrar quedas parecidas
+        semelhantes = historico[
+            (historico < queda_atual * 1.2) &
+            (historico > queda_atual * 0.8)
+        ]
 
-        return f"{ticker} | RSI {round(rsi_atual,2)} | {sinal}"
+        if len(semelhantes) < 5:
+            return None
 
-    except Exception as erro:
+        subidas = 0
 
-        return f"{ticker} erro na análise"
+        for i in semelhantes.index:
+
+            pos = dados.index.get_loc(i)
+
+            if pos + 5 < len(close):
+
+                futuro = close.iloc[pos+5]
+
+                atual = close.iloc[pos]
+
+                if futuro > atual:
+                    subidas += 1
+
+        prob = subidas / len(semelhantes)
+
+        if prob > 0.6:
+
+            return f"""
+📈 POSSÍVEL REVERSÃO
+
+Ação: {ticker}
+
+queda recente: {round(queda_atual*100,2)}%
+
+ocorrências históricas: {len(semelhantes)}
+
+probabilidade de alta: {round(prob*100,1)}%
+"""
+
+    except:
+
+        return None
 
 
-# ==============================
+# =====================================
 # GERAR RELATÓRIO
-# ==============================
+# =====================================
 
 def gerar_relatorio():
 
-    relatorio = "📊 RELATÓRIO AUTOMÁTICO B3\n\n"
+    sinais = []
 
     for acao in acoes:
 
         resultado = analisar_acao(acao)
 
-        relatorio += resultado + "\n"
+        if resultado:
 
-    return relatorio
+            sinais.append(resultado)
+
+    if not sinais:
+
+        return "📊 Nenhuma reversão estatística encontrada hoje"
+
+    msg = "📊 SINAIS ESTATÍSTICOS B3\n\n"
+
+    for s in sinais:
+
+        msg += s + "\n"
+
+    return msg
 
 
-# ==============================
-# LOOP PRINCIPAL DO ROBÔ
-# ==============================
+# =====================================
+# LOOP DO ROBÔ
+# =====================================
 
-print("Robô iniciado...")
+print("robô estatístico iniciado")
 
 while True:
 
@@ -120,13 +158,10 @@ while True:
 
         print(relatorio)
 
-        enviar_telegram(relatorio)
+        enviar(relatorio)
 
-        print("Relatório enviado para Telegram")
+    except Exception as e:
 
-    except Exception as erro:
+        print("erro:",e)
 
-        print("Erro geral:", erro)
-
-    # espera 30 minutos
-    time.sleep(1800)
+    time.sleep(3600)
