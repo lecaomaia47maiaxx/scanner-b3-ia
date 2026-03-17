@@ -1,7 +1,6 @@
 pandas
+numpy
 yfinance
-ta
 requests
-python-telegram-bot
-flask
-gunicorn
+feedparser
+lxml
