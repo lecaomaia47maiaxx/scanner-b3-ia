@@ -2,30 +2,17 @@ import time
 import requests
 import yfinance as yf
 import pandas as pd
-import numpy as np
 import feedparser
-
-# =========================
-# TELEGRAM
-# =========================
 
 TOKEN = "8628983709:AAE5MH-87tpO0_JSiSlj-RgphyZpRgck3Oc"
 CHAT_ID = "8352381582"
 
-# =========================
-# AÇÕES LÍQUIDAS B3
-# =========================
-
 acoes = [
 "PETR4.SA","VALE3.SA","ITUB4.SA","BBDC4.SA","ABEV3.SA",
 "BBAS3.SA","WEGE3.SA","B3SA3.SA","JBSS3.SA","RENT3.SA",
-"LREN3.SA","PRIO3.SA","SUZB3.SA","RADL3.SA","RAIL3.SA",
-"GGBR4.SA","CSNA3.SA","USIM5.SA","EQTL3.SA","VIVT3.SA"
+"LREN3.SA","PRIO3.SA","SUZB3.SA","RADL3.SA","RAIL3.SA"
 ]
 
-# =========================
-# TELEGRAM
-# =========================
 
 def enviar(msg):
 
@@ -43,28 +30,7 @@ def enviar(msg):
 
 
 # =========================
-# CALCULAR RSI
-# =========================
-
-def calcular_rsi(close,periodo=14):
-
-    delta = close.diff()
-
-    ganho = delta.clip(lower=0)
-    perda = -delta.clip(upper=0)
-
-    media_ganho = ganho.rolling(periodo).mean()
-    media_perda = perda.rolling(periodo).mean()
-
-    rs = media_ganho / media_perda
-
-    rsi = 100 - (100/(1+rs))
-
-    return rsi
-
-
-# =========================
-# ANALISE QUANTITATIVA
+# ANALISE HISTÓRICA
 # =========================
 
 def analisar_acao(ticker):
@@ -80,53 +46,53 @@ def analisar_acao(ticker):
 
         close = dados["Close"].squeeze()
 
-        retorno5 = close.pct_change(5)
+        retorno = close.pct_change()
 
-        queda_atual = retorno5.iloc[-1]
+        variacao_hoje = retorno.iloc[-1]
 
-        rsi = calcular_rsi(close)
+        preco = close.iloc[-1]
 
-        rsi_atual = rsi.iloc[-1]
-
-        historico = retorno5.dropna()
+        historico = retorno.dropna()
 
         semelhantes = historico[
-            (historico < queda_atual*1.2) &
-            (historico > queda_atual*0.8)
+            (historico < variacao_hoje*1.2) &
+            (historico > variacao_hoje*0.8)
         ]
 
-        if len(semelhantes) < 5:
-            prob = 0
-        else:
+        if len(semelhantes) < 6:
+            return None
 
-            subidas = 0
+        subidas = 0
 
-            for i in semelhantes.index:
+        for i in semelhantes.index:
 
-                pos = dados.index.get_loc(i)
+            pos = dados.index.get_loc(i)
 
-                if pos+5 < len(close):
+            if pos+1 < len(close):
 
-                    if close.iloc[pos+5] > close.iloc[pos]:
+                if close.iloc[pos+1] > close.iloc[pos]:
 
-                        subidas += 1
+                    subidas += 1
 
-            prob = subidas/len(semelhantes)
+        prob = subidas/len(semelhantes)
 
-        # força da queda
-        forca = abs(queda_atual)
+        if prob < 0.60:
+            return None
 
-        # fator RSI
-        fator_rsi = max(0,(50-rsi_atual)/50)
+        entrada = preco
 
-        score = (prob*0.5)+(forca*0.3)+(fator_rsi*0.2)
+        alvo_day = preco * 1.015
+
+        alvo_swing = preco * 1.03
 
         return {
             "acao": ticker.replace(".SA",""),
-            "queda": queda_atual,
+            "preco": preco,
+            "queda": variacao_hoje,
             "prob": prob,
-            "rsi": rsi_atual,
-            "score": score
+            "entrada": entrada,
+            "alvo_day": alvo_day,
+            "alvo_swing": alvo_swing
         }
 
     except:
@@ -135,106 +101,87 @@ def analisar_acao(ticker):
 
 
 # =========================
-# ANALISE DO MERCADO
+# LISTA ORGANIZADA
 # =========================
 
-def analisar_mercado():
+def oportunidades():
 
-    resultados = []
-
-    alertas = []
+    lista = []
 
     for acao in acoes:
 
         r = analisar_acao(acao)
 
         if r:
+            lista.append(r)
 
-            resultados.append(r)
+    if not lista:
 
-            if r["prob"] > 0.65 and r["rsi"] < 40:
+        return "Nenhuma oportunidade encontrada hoje."
 
-                alertas.append(r)
+    df = pd.DataFrame(lista)
 
-    df = pd.DataFrame(resultados)
+    df = df.sort_values("prob",ascending=False)
 
-    df = df.sort_values("score",ascending=False)
+    msg = "📊 OPORTUNIDADES ESTATÍSTICAS B3\n\n"
 
-    top = df.head(10)
-
-    msg = "📊 RANKING OPORTUNIDADES B3\n\n"
-
-    for i,row in top.iterrows():
-
-        cor = "🟢"
-
-        if row["queda"] > 0:
-            cor = "🟢"
-
-        elif row["queda"] < -0.03:
-            cor = "🔴"
-
-        else:
-            cor = "🟡"
+    for i,row in df.iterrows():
 
         msg += (
-        f"{cor} {row['acao']} "
-        f"queda {round(row['queda']*100,2)}% "
-        f"prob {round(row['prob']*100,1)}% "
-        f"RSI {round(row['rsi'],1)} "
-        f"score {round(row['score'],2)}\n"
+        f"🟢 {row['acao']}\n"
+        f"Preço atual: {round(row['preco'],2)}\n"
+        f"Queda hoje: {round(row['queda']*100,2)}%\n"
+        f"Prob. reversão: {round(row['prob']*100,1)}%\n"
+        f"Entrada: {round(row['entrada'],2)}\n"
+        f"Alvo DayTrade: {round(row['alvo_day'],2)}\n"
+        f"Alvo Swing: {round(row['alvo_swing'],2)}\n\n"
         )
-
-    # ALERTAS FORTES
-
-    if alertas:
-
-        msg += "\n🚨 ALERTAS FORTES\n\n"
-
-        for a in alertas:
-
-            msg += (
-            f"🟢 POSSÍVEL REVERSÃO\n"
-            f"{a['acao']}\n"
-            f"queda {round(a['queda']*100,2)}%\n"
-            f"prob {round(a['prob']*100,1)}%\n"
-            f"RSI {round(a['rsi'],1)}\n\n"
-            )
 
     return msg
 
 
 # =========================
-# NOTÍCIAS EM PORTUGUÊS
+# MERCADO GLOBAL
+# =========================
+
+def mercado_global():
+
+    sp = yf.download("^GSPC",period="5d",interval="1d",progress=False)
+    oil = yf.download("BZ=F",period="5d",interval="1d",progress=False)
+    usd = yf.download("USDBRL=X",period="5d",interval="1d",progress=False)
+
+    sp_var = sp["Close"].pct_change().iloc[-1]
+    oil_var = oil["Close"].pct_change().iloc[-1]
+    usd_var = usd["Close"].pct_change().iloc[-1]
+
+    msg = "🌎 MERCADO GLOBAL\n\n"
+
+    msg += f"S&P500: {round(sp_var*100,2)}%\n"
+    msg += f"Petróleo: {round(oil_var*100,2)}%\n"
+    msg += f"Dólar: {round(usd_var*100,2)}%\n"
+
+    if sp_var < -0.02:
+
+        msg += "\n🚨 ALERTA DE ESTRESSE NO MERCADO\n"
+
+    return msg
+
+
+# =========================
+# NOTÍCIAS
 # =========================
 
 def noticias():
 
-    feeds = [
-    "https://www.infomoney.com.br/feed/",
-    "https://br.investing.com/rss/news_25.rss"
-    ]
+    feed = "https://www.infomoney.com.br/feed/"
 
-    lista = []
-
-    for feed in feeds:
-
-        try:
-
-            data = feedparser.parse(feed)
-
-            for item in data.entries[:3]:
-
-                lista.append(item.title)
-
-        except:
-            pass
+    data = feedparser.parse(feed)
 
     msg = "\n📰 NOTÍCIAS DO MERCADO\n\n"
 
-    for n in lista[:5]:
+    for item in data.entries[:5]:
 
-        msg += f"- {n}\n"
+        msg += f"- {item.title}\n"
 
     return msg
 
@@ -245,18 +192,15 @@ def noticias():
 
 def relatorio():
 
-    mercado = analisar_mercado()
+    return (
+        mercado_global() +
+        "\n\n" +
+        oportunidades() +
+        noticias()
+    )
 
-    news = noticias()
 
-    return mercado + news
-
-
-# =========================
-# LOOP
-# =========================
-
-print("Robô quantitativo iniciado")
+print("robô iniciado")
 
 while True:
 
