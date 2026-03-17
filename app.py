@@ -3,28 +3,29 @@ import requests
 import yfinance as yf
 import pandas as pd
 import numpy as np
+import feedparser
 
-# =====================================
-# TELEGRAM
-# =====================================
+# ==============================
+# CONFIG TELEGRAM
+# ==============================
 
 TOKEN = "8628983709:AAE5MH-87tpO0_JSiSlj-RgphyZpRgck3Oc"
 CHAT_ID = "8352381582"
 
-# =====================================
+# ==============================
 # AÇÕES MAIS LÍQUIDAS B3
-# =====================================
+# ==============================
 
 acoes = [
-"PETR4.SA","VALE3.SA","ITUB4.SA","BBDC4.SA",
-"ABEV3.SA","BBAS3.SA","WEGE3.SA","B3SA3.SA",
-"JBSS3.SA","RENT3.SA","LREN3.SA","PRIO3.SA",
-"SUZB3.SA","RADL3.SA","RAIL3.SA"
+"PETR4.SA","VALE3.SA","ITUB4.SA","BBDC4.SA","ABEV3.SA",
+"BBAS3.SA","WEGE3.SA","B3SA3.SA","JBSS3.SA","RENT3.SA",
+"LREN3.SA","PRIO3.SA","SUZB3.SA","RADL3.SA","RAIL3.SA",
+"GGBR4.SA","USIM5.SA","CSNA3.SA","EQTL3.SA","ENBR3.SA"
 ]
 
-# =====================================
-# ENVIAR TELEGRAM
-# =====================================
+# ==============================
+# TELEGRAM
+# ==============================
 
 def enviar(msg):
 
@@ -40,9 +41,10 @@ def enviar(msg):
     except:
         print("erro telegram")
 
-# =====================================
-# ANALISE ESTATISTICA
-# =====================================
+
+# ==============================
+# ANÁLISE ESTATÍSTICA
+# ==============================
 
 def analisar_acao(ticker):
 
@@ -55,12 +57,11 @@ def analisar_acao(ticker):
             progress=False
         )
 
-        if len(dados) < 200:
+        if len(dados) < 300:
             return None
 
-        close = dados["Close"]
+        close = dados["Close"].squeeze()
 
-        # retorno 5 dias
         retorno = close.pct_change(5)
 
         queda_atual = retorno.iloc[-1]
@@ -70,13 +71,12 @@ def analisar_acao(ticker):
 
         historico = retorno.dropna()
 
-        # encontrar quedas parecidas
         semelhantes = historico[
             (historico < queda_atual * 1.2) &
             (historico > queda_atual * 0.8)
         ]
 
-        if len(semelhantes) < 5:
+        if len(semelhantes) < 6:
             return None
 
         subidas = 0
@@ -87,81 +87,139 @@ def analisar_acao(ticker):
 
             if pos + 5 < len(close):
 
-                futuro = close.iloc[pos+5]
+                preco_futuro = close.iloc[pos+5]
+                preco_atual = close.iloc[pos]
 
-                atual = close.iloc[pos]
-
-                if futuro > atual:
+                if preco_futuro > preco_atual:
                     subidas += 1
 
-        prob = subidas / len(semelhantes)
+        probabilidade = subidas / len(semelhantes)
 
-        if prob > 0.6:
+        retorno_medio = close.pct_change(5).mean()
 
-            return f"""
-📈 POSSÍVEL REVERSÃO
+        score = probabilidade * abs(queda_atual)
 
-Ação: {ticker}
-
-queda recente: {round(queda_atual*100,2)}%
-
-ocorrências históricas: {len(semelhantes)}
-
-probabilidade de alta: {round(prob*100,1)}%
-"""
+        return {
+            "acao": ticker.replace(".SA",""),
+            "queda": queda_atual,
+            "prob": probabilidade,
+            "ocorrencias": len(semelhantes),
+            "score": score
+        }
 
     except:
 
         return None
 
 
-# =====================================
-# GERAR RELATÓRIO
-# =====================================
+# ==============================
+# GERAR RANKING
+# ==============================
 
-def gerar_relatorio():
+def ranking_oportunidades():
 
-    sinais = []
+    resultados = []
 
     for acao in acoes:
 
-        resultado = analisar_acao(acao)
+        analise = analisar_acao(acao)
 
-        if resultado:
+        if analise:
+            resultados.append(analise)
 
-            sinais.append(resultado)
+    if not resultados:
+        return "Nenhuma oportunidade estatística encontrada."
 
-    if not sinais:
+    df = pd.DataFrame(resultados)
 
-        return "📊 Nenhuma reversão estatística encontrada hoje"
+    df = df.sort_values("score",ascending=False)
 
-    msg = "📊 SINAIS ESTATÍSTICOS B3\n\n"
+    top10 = df.head(10)
 
-    for s in sinais:
+    msg = "📊 TOP 10 OPORTUNIDADES ESTATÍSTICAS B3\n\n"
 
-        msg += s + "\n"
+    for i,row in top10.iterrows():
+
+        msg += (
+            f"{row['acao']}\n"
+            f"queda recente: {round(row['queda']*100,2)}%\n"
+            f"probabilidade alta: {round(row['prob']*100,1)}%\n"
+            f"ocorrências históricas: {row['ocorrencias']}\n\n"
+        )
 
     return msg
 
 
-# =====================================
-# LOOP DO ROBÔ
-# =====================================
+# ==============================
+# NOTÍCIAS DO MERCADO GLOBAL
+# ==============================
 
-print("robô estatístico iniciado")
+def noticias_mercado():
+
+    feeds = [
+    "https://feeds.reuters.com/reuters/businessNews",
+    "https://feeds.reuters.com/reuters/worldNews",
+    "https://www.investing.com/rss/news_25.rss"
+    ]
+
+    noticias = []
+
+    for feed in feeds:
+
+        try:
+
+            data = feedparser.parse(feed)
+
+            for item in data.entries[:2]:
+
+                noticias.append(item.title)
+
+        except:
+            pass
+
+    msg = "🌎 PRINCIPAIS NOTÍCIAS DO MERCADO GLOBAL\n\n"
+
+    for n in noticias[:6]:
+
+        msg += f"- {n}\n"
+
+    return msg
+
+
+# ==============================
+# RELATÓRIO COMPLETO
+# ==============================
+
+def relatorio():
+
+    ranking = ranking_oportunidades()
+
+    news = noticias_mercado()
+
+    msg = ranking + "\n\n" + news
+
+    return msg
+
+
+# ==============================
+# LOOP DO ROBÔ
+# ==============================
+
+print("Robô quantitativo iniciado")
 
 while True:
 
     try:
 
-        relatorio = gerar_relatorio()
+        mensagem = relatorio()
 
-        print(relatorio)
+        print(mensagem)
 
-        enviar(relatorio)
+        enviar(mensagem)
 
     except Exception as e:
 
         print("erro:",e)
 
-    time.sleep(3600)
+    # roda a cada 2 horas
+    time.sleep(7200)
