@@ -5,16 +5,16 @@ import pandas as pd
 import numpy as np
 import feedparser
 
-# ==============================
+# =========================
 # TELEGRAM
-# ==============================
+# =========================
 
 TOKEN = "8628983709:AAE5MH-87tpO0_JSiSlj-RgphyZpRgck3Oc"
 CHAT_ID = "8352381582"
 
-# ==============================
-# AÇÕES MAIS LÍQUIDAS
-# ==============================
+# =========================
+# AÇÕES LÍQUIDAS B3
+# =========================
 
 acoes = [
 "PETR4.SA","VALE3.SA","ITUB4.SA","BBDC4.SA","ABEV3.SA",
@@ -23,9 +23,9 @@ acoes = [
 "GGBR4.SA","CSNA3.SA","USIM5.SA","EQTL3.SA","VIVT3.SA"
 ]
 
-# ==============================
+# =========================
 # TELEGRAM
-# ==============================
+# =========================
 
 def enviar(msg):
 
@@ -41,9 +41,31 @@ def enviar(msg):
     except:
         print("erro telegram")
 
-# ==============================
-# ANALISE ESTATÍSTICA
-# ==============================
+
+# =========================
+# CALCULAR RSI
+# =========================
+
+def calcular_rsi(close,periodo=14):
+
+    delta = close.diff()
+
+    ganho = delta.clip(lower=0)
+    perda = -delta.clip(upper=0)
+
+    media_ganho = ganho.rolling(periodo).mean()
+    media_perda = perda.rolling(periodo).mean()
+
+    rs = media_ganho / media_perda
+
+    rsi = 100 - (100/(1+rs))
+
+    return rsi
+
+
+# =========================
+# ANALISE QUANTITATIVA
+# =========================
 
 def analisar_acao(ticker):
 
@@ -56,20 +78,21 @@ def analisar_acao(ticker):
             progress=False
         )
 
-        if len(dados) < 300:
-            return None
-
         close = dados["Close"].squeeze()
 
         retorno5 = close.pct_change(5)
 
         queda_atual = retorno5.iloc[-1]
 
+        rsi = calcular_rsi(close)
+
+        rsi_atual = rsi.iloc[-1]
+
         historico = retorno5.dropna()
 
         semelhantes = historico[
-            (historico < queda_atual * 1.2) &
-            (historico > queda_atual * 0.8)
+            (historico < queda_atual*1.2) &
+            (historico > queda_atual*0.8)
         ]
 
         if len(semelhantes) < 5:
@@ -82,80 +105,113 @@ def analisar_acao(ticker):
 
                 pos = dados.index.get_loc(i)
 
-                if pos + 5 < len(close):
+                if pos+5 < len(close):
 
                     if close.iloc[pos+5] > close.iloc[pos]:
+
                         subidas += 1
 
-            prob = subidas / len(semelhantes)
+            prob = subidas/len(semelhantes)
 
-        score = prob * abs(queda_atual)
+        # força da queda
+        forca = abs(queda_atual)
+
+        # fator RSI
+        fator_rsi = max(0,(50-rsi_atual)/50)
+
+        score = (prob*0.5)+(forca*0.3)+(fator_rsi*0.2)
 
         return {
             "acao": ticker.replace(".SA",""),
             "queda": queda_atual,
             "prob": prob,
+            "rsi": rsi_atual,
             "score": score
         }
 
     except:
+
         return None
 
 
-# ==============================
-# GERAR LISTA E RANKING
-# ==============================
+# =========================
+# ANALISE DO MERCADO
+# =========================
 
 def analisar_mercado():
 
     resultados = []
+
+    alertas = []
 
     for acao in acoes:
 
         r = analisar_acao(acao)
 
         if r:
+
             resultados.append(r)
 
-    if not resultados:
-        return "Erro na análise"
+            if r["prob"] > 0.65 and r["rsi"] < 40:
+
+                alertas.append(r)
 
     df = pd.DataFrame(resultados)
 
-    df_rank = df.sort_values("score",ascending=False).head(10)
+    df = df.sort_values("score",ascending=False)
+
+    top = df.head(10)
 
     msg = "📊 RANKING OPORTUNIDADES B3\n\n"
 
-    for i,row in df_rank.iterrows():
+    for i,row in top.iterrows():
+
+        cor = "🟢"
+
+        if row["queda"] > 0:
+            cor = "🟢"
+
+        elif row["queda"] < -0.03:
+            cor = "🔴"
+
+        else:
+            cor = "🟡"
 
         msg += (
-        f"{row['acao']} | "
-        f"queda {round(row['queda']*100,2)}% | "
-        f"prob alta {round(row['prob']*100,1)}%\n"
+        f"{cor} {row['acao']} "
+        f"queda {round(row['queda']*100,2)}% "
+        f"prob {round(row['prob']*100,1)}% "
+        f"RSI {round(row['rsi'],1)} "
+        f"score {round(row['score'],2)}\n"
         )
 
-    msg += "\n📋 TODAS AÇÕES ANALISADAS\n\n"
+    # ALERTAS FORTES
 
-    for i,row in df.iterrows():
+    if alertas:
 
-        msg += (
-        f"{row['acao']} "
-        f"queda:{round(row['queda']*100,2)}% "
-        f"prob:{round(row['prob']*100,1)}%\n"
-        )
+        msg += "\n🚨 ALERTAS FORTES\n\n"
+
+        for a in alertas:
+
+            msg += (
+            f"🟢 POSSÍVEL REVERSÃO\n"
+            f"{a['acao']}\n"
+            f"queda {round(a['queda']*100,2)}%\n"
+            f"prob {round(a['prob']*100,1)}%\n"
+            f"RSI {round(a['rsi'],1)}\n\n"
+            )
 
     return msg
 
 
-# ==============================
+# =========================
 # NOTÍCIAS EM PORTUGUÊS
-# ==============================
+# =========================
 
 def noticias():
 
     feeds = [
     "https://www.infomoney.com.br/feed/",
-    "https://www.valor.com.br/financas/rss",
     "https://br.investing.com/rss/news_25.rss"
     ]
 
@@ -174,18 +230,18 @@ def noticias():
         except:
             pass
 
-    msg = "📰 PRINCIPAIS NOTÍCIAS DO MERCADO\n\n"
+    msg = "\n📰 NOTÍCIAS DO MERCADO\n\n"
 
-    for n in lista[:6]:
+    for n in lista[:5]:
 
         msg += f"- {n}\n"
 
     return msg
 
 
-# ==============================
-# RELATÓRIO FINAL
-# ==============================
+# =========================
+# RELATORIO FINAL
+# =========================
 
 def relatorio():
 
@@ -193,14 +249,14 @@ def relatorio():
 
     news = noticias()
 
-    return mercado + "\n\n" + news
+    return mercado + news
 
 
-# ==============================
-# LOOP DO ROBÔ
-# ==============================
+# =========================
+# LOOP
+# =========================
 
-print("robô quantitativo iniciado")
+print("Robô quantitativo iniciado")
 
 while True:
 
@@ -216,4 +272,4 @@ while True:
 
         print("erro:",e)
 
-    time.sleep(7200)
+    time.sleep(3600)
