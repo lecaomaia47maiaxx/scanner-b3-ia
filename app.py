@@ -3,27 +3,21 @@ import requests
 import time
 
 # ==============================
-# CONFIG TELEGRAM
+# CONFIG
 # ==============================
 
 TOKEN = "8628983709:AAE5MH-87tpO0_JSiSlj-RgphyZpRgck3Oc"
 CHAT_ID = "8352381582"
+GNEWS_API = "de1c856f0bb4160d37e29d7e20f06c54"
 
 # ==============================
-# ATIVOS (SEM JBSS3)
+# AÇÕES MAIS LÍQUIDAS B3
 # ==============================
 
 ATIVOS = [
-    "PETR4.SA",
-    "VALE3.SA",
-    "ITUB4.SA",
-    "BBDC4.SA",
-    "ABEV3.SA",
-    "WEGE3.SA",
-    "BBAS3.SA",
-    "RENT3.SA",
-    "SUZB3.SA",
-    "PRIO3.SA"
+    "PETR4.SA","VALE3.SA","ITUB4.SA","BBDC4.SA",
+    "BBAS3.SA","WEGE3.SA","PRIO3.SA","RENT3.SA",
+    "SUZB3.SA","ABEV3.SA"
 ]
 
 # ==============================
@@ -32,29 +26,29 @@ ATIVOS = [
 
 def enviar_telegram(msg):
     url = f"https://api.telegram.org/bot{TOKEN}/sendMessage"
-    payload = {
+    requests.post(url, json={
         "chat_id": CHAT_ID,
         "text": msg,
         "parse_mode": "Markdown"
-    }
-    requests.post(url, json=payload)
+    })
+
+def enviar_imagem(url_img, caption=""):
+    url = f"https://api.telegram.org/bot{TOKEN}/sendPhoto"
+    requests.post(url, json={
+        "chat_id": CHAT_ID,
+        "photo": url_img,
+        "caption": caption,
+        "parse_mode": "Markdown"
+    })
 
 # ==============================
-# CORRIGIR SERIES (ERRO FLOAT)
+# AJUSTE DE DADOS
 # ==============================
 
-def ajustar_serie(col):
-    if col is None:
-        return None
-
-    # Se vier como DataFrame (multi-coluna)
+def ajustar(col):
     if hasattr(col, "columns"):
         col = col.iloc[:, 0]
-
-    # Garantir numérico
-    col = col.squeeze()
-
-    return col
+    return col.squeeze()
 
 # ==============================
 # DADOS COM FALLBACK
@@ -63,92 +57,74 @@ def ajustar_serie(col):
 def get_dados(ticker):
     try:
         data = yf.download(ticker, period="6mo", interval="1d", progress=False)
-
         if data.empty:
             raise Exception
-
         return data
-
     except:
         try:
-            data = yf.download(ticker, start="2023-01-01", interval="1d", progress=False)
-
-            if data.empty:
-                return None
-
-            return data
-
+            return yf.download(ticker, start="2023-01-01", interval="1d", progress=False)
         except:
             return None
 
 # ==============================
-# ANÁLISE PROFISSIONAL
+# ANÁLISE (REVERSÃO + PULLBACK)
 # ==============================
 
 def analisar_ativo(ticker):
     try:
         data = get_dados(ticker)
-
         if data is None or len(data) < 50:
             return None
 
-        close = ajustar_serie(data.get("Close"))
-        volume = ajustar_serie(data.get("Volume"))
-
-        if close is None or volume is None:
-            return None
-
-        # Garantir valores escalares
-        close = close.dropna()
-        volume = volume.dropna()
-
-        if len(close) < 30:
-            return None
+        close = ajustar(data["Close"]).dropna()
+        volume = ajustar(data["Volume"]).dropna()
 
         mm9 = close.rolling(9).mean()
         mm21 = close.rolling(21).mean()
 
-        # Tendência
-        tendencia = "ALTA 📈" if mm9.iloc[-1] > mm21.iloc[-1] else "BAIXA 📉"
+        preco = float(close.iloc[-1])
+        anterior = float(close.iloc[-2])
+        variacao = ((preco - anterior) / anterior) * 100
 
-        # Volume
+        # REVERSÃO
+        cruzamento = mm9.iloc[-2] < mm21.iloc[-2] and mm9.iloc[-1] > mm21.iloc[-1]
+
+        # PULLBACK
+        distancia_mm9 = ((preco - mm9.iloc[-1]) / mm9.iloc[-1]) * 100
+
+        entrada = None
+        sinal = "NEUTRO ⚪"
+
+        if cruzamento:
+            sinal = "REVERSÃO 🔄"
+
+        if mm9.iloc[-1] > mm21.iloc[-1] and distancia_mm9 < 1:
+            entrada = round(mm9.iloc[-1], 2)
+            sinal = "COMPRA POR PULLBACK 🟢🔥"
+
+        # VOLUME
         vol_atual = float(volume.iloc[-1])
         vol_media = float(volume.rolling(20).mean().iloc[-1])
-
         volume_status = "FORTE 🔥" if vol_atual > vol_media else "FRACO 💤"
 
-        # Variação
-        preco_atual = float(close.iloc[-1])
-        preco_anterior = float(close.iloc[-2])
-
-        variacao = ((preco_atual - preco_anterior) / preco_anterior) * 100
-
-        # Fluxo
-        if variacao > 1:
-            fluxo = "COMPRA 🟢"
-        elif variacao < -1:
-            fluxo = "VENDA 🔴"
-        else:
-            fluxo = "NEUTRO ⚪"
-
         return {
-            "ticker": ticker.replace(".SA", ""),
-            "preco": round(preco_atual, 2),
-            "variacao": round(variacao, 2),
-            "tendencia": tendencia,
+            "ticker": ticker.replace(".SA",""),
+            "preco": round(preco,2),
+            "variacao": round(variacao,2),
+            "entrada": entrada,
             "volume": volume_status,
-            "fluxo": fluxo
+            "sinal": sinal
         }
 
     except Exception as e:
-        print(f"Erro análise {ticker}: {e}")
+        print("Erro:", ticker, e)
         return None
 
 # ==============================
 # SCANNER
 # ==============================
 
-def scanner_b3():
+def scanner():
     resultados = []
 
     for ativo in ATIVOS:
@@ -156,99 +132,67 @@ def scanner_b3():
         if r:
             resultados.append(r)
 
-    oportunidades = [
-        r for r in resultados
-        if r["fluxo"] == "COMPRA 🟢" and r["volume"] == "FORTE 🔥"
-    ]
+    alertas = [r for r in resultados if "🔥" in r["sinal"]]
 
-    return resultados, oportunidades
+    return resultados, alertas
 
 # ==============================
-# NOTÍCIAS
+# NOTÍCIAS (GNEWS)
 # ==============================
 
 def buscar_noticias():
-    url = "https://newsapi.org/v2/top-headlines?category=business&language=pt&apiKey=SUA_API_AQUI"
+    url = f"https://gnews.io/api/v4/top-headlines?token={GNEWS_API}&lang=pt&topic=business"
 
     try:
         r = requests.get(url).json()
-        artigos = r.get("articles", [])[:5]
-
-        noticias = []
-        for a in artigos:
-            noticias.append({
-                "titulo": a["title"],
-                "resumo": a["description"] or "",
-                "link": a["url"]
-            })
-
-        return noticias
-
+        return r.get("articles", [])[:5]
     except:
         return []
 
 # ==============================
-# FORMATAR COTAÇÕES
-# ==============================
-
-def formatar_cotacoes(resultados):
-    texto = "💰 *COTAÇÕES DAS AÇÕES*\n\n"
-
-    for r in resultados:
-        emoji = "🟢" if r["variacao"] > 0 else "🔴"
-
-        texto += f"{emoji} *{r['ticker']}* → R$ {r['preco']} ({r['variacao']}%)\n"
-
-    return texto + "\n━━━━━━━━━━━━━━━\n\n"
-
-# ==============================
-# FORMATAR ANÁLISE
-# ==============================
-
-def formatar_analises(resultados):
-    texto = "📊 *ANÁLISE INSTITUCIONAL*\n\n"
-
-    for r in resultados:
-        texto += (
-            f"🏢 *{r['ticker']}*\n"
-            f"📈 {r['tendencia']} | {r['fluxo']}\n"
-            f"📊 Volume: {r['volume']}\n\n"
-            f"━━━━━━━━━━━━━━━\n\n"
-        )
-
-    return texto
-
-# ==============================
-# FORMATAR NOTÍCIAS
-# ==============================
-
-def formatar_noticias(noticias):
-    texto = "📰 *NOTÍCIAS DO MERCADO*\n\n"
-
-    for n in noticias:
-        texto += f"🟡 *{n['titulo']}*\n"
-        texto += f"{n['resumo']}\n"
-        texto += f"🔗 {n['link']}\n\n"
-        texto += "━━━━━━━━━━━━━━━\n\n"
-
-    return texto
-
-# ==============================
-# RELATÓRIO FINAL
+# RELATÓRIO
 # ==============================
 
 def enviar_relatorio():
-    resultados, _ = scanner_b3()
+    resultados, alertas = scanner()
+
+    # 🚨 ALERTAS
+    if alertas:
+        msg = "🚨 *ALERTAS DE ENTRADA*\n\n"
+        for a in alertas:
+            msg += (
+                f"🔥 *{a['ticker']}*\n"
+                f"💰 Preço: R$ {a['preco']}\n"
+                f"🎯 Entrada: R$ {a['entrada']}\n"
+                f"📊 Volume: {a['volume']}\n"
+                f"⚡ {a['sinal']}\n\n"
+                f"━━━━━━━━━━━━━━━\n\n"
+            )
+        enviar_telegram(msg)
+
+    # 💰 COTAÇÕES
+    cot = "💰 *COTAÇÕES DAS AÇÕES*\n\n"
+    for r in resultados:
+        emoji = "🟢" if r["variacao"] > 0 else "🔴"
+        cot += f"{emoji} {r['ticker']} → R$ {r['preco']} ({r['variacao']}%)\n"
+
+    enviar_telegram(cot)
+
+    # 📰 NOTÍCIAS COM IMAGEM
     noticias = buscar_noticias()
 
-    msg = (
-        formatar_cotacoes(resultados) +
-        formatar_analises(resultados) +
-        "\n" +
-        formatar_noticias(noticias)
-    )
+    for n in noticias:
+        titulo = n["title"]
+        desc = n["description"] or ""
+        link = n["url"]
+        img = n.get("image")
 
-    enviar_telegram(msg)
+        caption = f"📰 *{titulo}*\n\n{desc}\n\n🔗 {link}"
+
+        if img:
+            enviar_imagem(img, caption)
+        else:
+            enviar_telegram(caption)
 
 # ==============================
 # LOOP
@@ -258,7 +202,6 @@ while True:
     try:
         print("Rodando robô...")
         enviar_relatorio()
-        print("Enviado com sucesso!")
     except Exception as e:
         print("Erro geral:", e)
 
