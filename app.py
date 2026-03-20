@@ -27,7 +27,7 @@ ATIVOS = [
 ]
 
 # ==============================
-# TELEGRAM SEND
+# TELEGRAM
 # ==============================
 
 def enviar_telegram(msg):
@@ -40,7 +40,24 @@ def enviar_telegram(msg):
     requests.post(url, json=payload)
 
 # ==============================
-# DADOS COM FALLBACK (ANTI ERRO)
+# CORRIGIR SERIES (ERRO FLOAT)
+# ==============================
+
+def ajustar_serie(col):
+    if col is None:
+        return None
+
+    # Se vier como DataFrame (multi-coluna)
+    if hasattr(col, "columns"):
+        col = col.iloc[:, 0]
+
+    # Garantir numérico
+    col = col.squeeze()
+
+    return col
+
+# ==============================
+# DADOS COM FALLBACK
 # ==============================
 
 def get_dados(ticker):
@@ -48,7 +65,7 @@ def get_dados(ticker):
         data = yf.download(ticker, period="6mo", interval="1d", progress=False)
 
         if data.empty:
-            raise Exception("Erro period")
+            raise Exception
 
         return data
 
@@ -65,61 +82,79 @@ def get_dados(ticker):
             return None
 
 # ==============================
-# ANÁLISE INSTITUCIONAL
+# ANÁLISE PROFISSIONAL
 # ==============================
 
 def analisar_ativo(ticker):
-    data = get_dados(ticker)
+    try:
+        data = get_dados(ticker)
 
-    if data is None or len(data) < 50:
+        if data is None or len(data) < 50:
+            return None
+
+        close = ajustar_serie(data.get("Close"))
+        volume = ajustar_serie(data.get("Volume"))
+
+        if close is None or volume is None:
+            return None
+
+        # Garantir valores escalares
+        close = close.dropna()
+        volume = volume.dropna()
+
+        if len(close) < 30:
+            return None
+
+        mm9 = close.rolling(9).mean()
+        mm21 = close.rolling(21).mean()
+
+        # Tendência
+        tendencia = "ALTA 📈" if mm9.iloc[-1] > mm21.iloc[-1] else "BAIXA 📉"
+
+        # Volume
+        vol_atual = float(volume.iloc[-1])
+        vol_media = float(volume.rolling(20).mean().iloc[-1])
+
+        volume_status = "FORTE 🔥" if vol_atual > vol_media else "FRACO 💤"
+
+        # Variação
+        preco_atual = float(close.iloc[-1])
+        preco_anterior = float(close.iloc[-2])
+
+        variacao = ((preco_atual - preco_anterior) / preco_anterior) * 100
+
+        # Fluxo
+        if variacao > 1:
+            fluxo = "COMPRA 🟢"
+        elif variacao < -1:
+            fluxo = "VENDA 🔴"
+        else:
+            fluxo = "NEUTRO ⚪"
+
+        return {
+            "ticker": ticker.replace(".SA", ""),
+            "preco": round(preco_atual, 2),
+            "variacao": round(variacao, 2),
+            "tendencia": tendencia,
+            "volume": volume_status,
+            "fluxo": fluxo
+        }
+
+    except Exception as e:
+        print(f"Erro análise {ticker}: {e}")
         return None
 
-    close = data["Close"]
-    volume = data["Volume"]
-
-    mm9 = close.rolling(9).mean()
-    mm21 = close.rolling(21).mean()
-
-    # Tendência
-    tendencia = "ALTA 📈" if mm9.iloc[-1] > mm21.iloc[-1] else "BAIXA 📉"
-
-    # Volume
-    vol_atual = volume.iloc[-1]
-    vol_media = volume.rolling(20).mean().iloc[-1]
-
-    volume_status = "FORTE 🔥" if vol_atual > vol_media else "FRACO 💤"
-
-    # Fluxo
-    variacao = ((close.iloc[-1] - close.iloc[-2]) / close.iloc[-2]) * 100
-
-    if variacao > 1:
-        fluxo = "COMPRA 🟢"
-    elif variacao < -1:
-        fluxo = "VENDA 🔴"
-    else:
-        fluxo = "NEUTRO ⚪"
-
-    return {
-        "ticker": ticker.replace(".SA", ""),
-        "preco": round(close.iloc[-1], 2),
-        "tendencia": tendencia,
-        "volume": volume_status,
-        "fluxo": fluxo,
-        "variacao": round(variacao, 2)
-    }
-
 # ==============================
-# SCANNER B3
+# SCANNER
 # ==============================
 
 def scanner_b3():
     resultados = []
 
     for ativo in ATIVOS:
-        analise = analisar_ativo(ativo)
-
-        if analise:
-            resultados.append(analise)
+        r = analisar_ativo(ativo)
+        if r:
+            resultados.append(r)
 
     oportunidades = [
         r for r in resultados
@@ -129,12 +164,12 @@ def scanner_b3():
     return resultados, oportunidades
 
 # ==============================
-# NOTÍCIAS (API GRATUITA)
+# NOTÍCIAS
 # ==============================
 
 def buscar_noticias():
     url = "https://newsapi.org/v2/top-headlines?category=business&language=pt&apiKey=SUA_API_AQUI"
-    
+
     try:
         r = requests.get(url).json()
         artigos = r.get("articles", [])[:5]
@@ -153,6 +188,37 @@ def buscar_noticias():
         return []
 
 # ==============================
+# FORMATAR COTAÇÕES
+# ==============================
+
+def formatar_cotacoes(resultados):
+    texto = "💰 *COTAÇÕES DAS AÇÕES*\n\n"
+
+    for r in resultados:
+        emoji = "🟢" if r["variacao"] > 0 else "🔴"
+
+        texto += f"{emoji} *{r['ticker']}* → R$ {r['preco']} ({r['variacao']}%)\n"
+
+    return texto + "\n━━━━━━━━━━━━━━━\n\n"
+
+# ==============================
+# FORMATAR ANÁLISE
+# ==============================
+
+def formatar_analises(resultados):
+    texto = "📊 *ANÁLISE INSTITUCIONAL*\n\n"
+
+    for r in resultados:
+        texto += (
+            f"🏢 *{r['ticker']}*\n"
+            f"📈 {r['tendencia']} | {r['fluxo']}\n"
+            f"📊 Volume: {r['volume']}\n\n"
+            f"━━━━━━━━━━━━━━━\n\n"
+        )
+
+    return texto
+
+# ==============================
 # FORMATAR NOTÍCIAS
 # ==============================
 
@@ -168,61 +234,32 @@ def formatar_noticias(noticias):
     return texto
 
 # ==============================
-# FORMATAR ANÁLISE
-# ==============================
-
-def formatar_analises(resultados, oportunidades):
-    texto = "📊 *SCANNER INSTITUCIONAL B3*\n\n"
-
-    for r in resultados:
-        texto += (
-            f"🏢 *{r['ticker']}*\n"
-            f"💰 Preço: R$ {r['preco']}\n"
-            f"📈 Tendência: {r['tendencia']}\n"
-            f"📊 Volume: {r['volume']}\n"
-            f"⚡ Fluxo: {r['fluxo']}\n"
-            f"📉 Variação: {r['variacao']}%\n\n"
-            f"━━━━━━━━━━━━━━━\n\n"
-        )
-
-    texto += "\n🚀 *OPORTUNIDADES DO DIA*\n\n"
-
-    if oportunidades:
-        for o in oportunidades:
-            texto += (
-                f"🟢 *{o['ticker']}* FORÇA COMPRADORA\n"
-                f"💰 {o['preco']} | 📈 {o['variacao']}%\n\n"
-            )
-    else:
-        texto += "⚠️ Nenhuma oportunidade forte no momento\n"
-
-    return texto
-
-# ==============================
 # RELATÓRIO FINAL
 # ==============================
 
 def enviar_relatorio():
+    resultados, _ = scanner_b3()
     noticias = buscar_noticias()
-    texto_noticias = formatar_noticias(noticias)
 
-    resultados, oportunidades = scanner_b3()
-    texto_analise = formatar_analises(resultados, oportunidades)
+    msg = (
+        formatar_cotacoes(resultados) +
+        formatar_analises(resultados) +
+        "\n" +
+        formatar_noticias(noticias)
+    )
 
-    mensagem = texto_noticias + "\n\n" + texto_analise
-
-    enviar_telegram(mensagem)
+    enviar_telegram(msg)
 
 # ==============================
-# LOOP PRINCIPAL (RODA PRA SEMPRE)
+# LOOP
 # ==============================
 
 while True:
     try:
-        print("Rodando análise...")
+        print("Rodando robô...")
         enviar_relatorio()
         print("Enviado com sucesso!")
     except Exception as e:
-        print("Erro:", e)
+        print("Erro geral:", e)
 
-    time.sleep(1800)  # 30 minutos
+    time.sleep(1800)
