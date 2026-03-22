@@ -12,6 +12,7 @@ GNEWS_API = "de1c856f0bb4160d37e29d7e20f06c54"
 
 # ==============================
 # AÇÕES MAIS LÍQUIDAS B3
+# (JBSS3 REMOVIDA DEFINITIVAMENTE)
 # ==============================
 
 ATIVOS = [
@@ -42,29 +43,28 @@ def enviar_imagem(url_img, caption=""):
     })
 
 # ==============================
-# AJUSTE DE DADOS
+# AJUSTE DE COLUNA
 # ==============================
 
 def ajustar(col):
+    if col is None:
+        return None
     if hasattr(col, "columns"):
         col = col.iloc[:, 0]
     return col.squeeze()
 
 # ==============================
-# DADOS COM FALLBACK
+# DADOS (COM PROTEÇÃO TOTAL)
 # ==============================
 
 def get_dados(ticker):
     try:
-        data = yf.download(ticker, period="6mo", interval="1d", progress=False)
-        if data.empty:
-            raise Exception
+        data = yf.download(ticker, period="6mo", interval="1d", progress=False, threads=False)
+        if data is None or data.empty:
+            return None
         return data
     except:
-        try:
-            return yf.download(ticker, start="2023-01-01", interval="1d", progress=False)
-        except:
-            return None
+        return None
 
 # ==============================
 # ANÁLISE (REVERSÃO + PULLBACK)
@@ -73,11 +73,17 @@ def get_dados(ticker):
 def analisar_ativo(ticker):
     try:
         data = get_dados(ticker)
-        if data is None or len(data) < 50:
+        if data is None or len(data) < 30:
             return None
 
-        close = ajustar(data["Close"]).dropna()
-        volume = ajustar(data["Volume"]).dropna()
+        close = ajustar(data.get("Close"))
+        volume = ajustar(data.get("Volume"))
+
+        if close is None or volume is None:
+            return None
+
+        close = close.dropna()
+        volume = volume.dropna()
 
         mm9 = close.rolling(9).mean()
         mm21 = close.rolling(21).mean()
@@ -117,7 +123,7 @@ def analisar_ativo(ticker):
         }
 
     except Exception as e:
-        print("Erro:", ticker, e)
+        print("Erro na análise:", ticker)
         return None
 
 # ==============================
@@ -126,18 +132,23 @@ def analisar_ativo(ticker):
 
 def scanner():
     resultados = []
+    alertas = []
 
     for ativo in ATIVOS:
         r = analisar_ativo(ativo)
-        if r:
-            resultados.append(r)
 
-    alertas = [r for r in resultados if "🔥" in r["sinal"]]
+        if r is None:
+            continue
+
+        resultados.append(r)
+
+        if "🔥" in r["sinal"]:
+            alertas.append(r)
 
     return resultados, alertas
 
 # ==============================
-# NOTÍCIAS (GNEWS)
+# NOTÍCIAS GNEWS
 # ==============================
 
 def buscar_noticias():
@@ -156,7 +167,7 @@ def buscar_noticias():
 def enviar_relatorio():
     resultados, alertas = scanner()
 
-    # 🚨 ALERTAS
+    # ALERTAS
     if alertas:
         msg = "🚨 *ALERTAS DE ENTRADA*\n\n"
         for a in alertas:
@@ -170,7 +181,7 @@ def enviar_relatorio():
             )
         enviar_telegram(msg)
 
-    # 💰 COTAÇÕES
+    # COTAÇÕES
     cot = "💰 *COTAÇÕES DAS AÇÕES*\n\n"
     for r in resultados:
         emoji = "🟢" if r["variacao"] > 0 else "🔴"
@@ -178,7 +189,7 @@ def enviar_relatorio():
 
     enviar_telegram(cot)
 
-    # 📰 NOTÍCIAS COM IMAGEM
+    # NOTÍCIAS
     noticias = buscar_noticias()
 
     for n in noticias:
@@ -202,6 +213,7 @@ while True:
     try:
         print("Rodando robô...")
         enviar_relatorio()
+        print("Relatório enviado!")
     except Exception as e:
         print("Erro geral:", e)
 
